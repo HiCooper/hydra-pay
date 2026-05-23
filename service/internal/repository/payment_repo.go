@@ -69,3 +69,19 @@ func (r *PaymentRepository) MarkPaid(id uuid.UUID, externalID string) error {
 			"paid_at":     gorm.Expr("NOW()"),
 		}).Error
 }
+
+// MarkPaidIfPending atomically marks payment as paid only if currently pending or processing.
+// Returns true if the update was applied, false if already in a terminal state.
+func (r *PaymentRepository) MarkPaidIfPending(id uuid.UUID, externalID string) (bool, error) {
+	result := r.db.Model(&model.Payment{}).
+		Where("id = ? AND status IN ?", id, []string{model.PaymentStatusPending, model.PaymentStatusProcessing}).
+		Updates(map[string]interface{}{
+			"status":      model.PaymentStatusPaid,
+			"external_id": externalID,
+			"paid_at":     gorm.Expr("NOW()"),
+		})
+	if result.Error != nil {
+		return false, result.Error
+	}
+	return result.RowsAffected > 0, nil
+}

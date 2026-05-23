@@ -25,6 +25,9 @@ func Connect(cfg *config.Config) (*gorm.DB, error) {
 	if err := db.AutoMigrate(&model.App{}); err != nil {
 		return nil, err
 	}
+	if err := db.AutoMigrate(&model.PaymentEvent{}); err != nil {
+		return nil, err
+	}
 
 	log.Println("[db] connected and migrated")
 	return db, nil

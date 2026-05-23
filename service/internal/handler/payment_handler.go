@@ -1,7 +1,7 @@
 package handler
 
 import (
-	"encoding/json"
+	"io"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -11,6 +11,7 @@ import (
 	"github.com/hydra/pay-service/internal/channel"
 	"github.com/hydra/pay-service/internal/config"
 	"github.com/hydra/pay-service/internal/middleware"
+	"github.com/hydra/pay-service/internal/model"
 	"github.com/hydra/pay-service/internal/repository"
 	"github.com/hydra/pay-service/internal/service"
 	"github.com/hydra/pay-service/pkg/errors"
@@ -24,7 +25,7 @@ type PaymentHandler struct {
 func NewPaymentHandler(db *gorm.DB, cfg *config.Config) *PaymentHandler {
 	repo := repository.NewPaymentRepository(db)
 	return &PaymentHandler{
-		paymentService: service.NewPaymentService(repo, cfg.Wall.WebhookURL),
+		paymentService: service.NewPaymentService(repo, cfg, db),
 	}
 }
 
@@ -37,15 +38,22 @@ func (h *PaymentHandler) CreatePayment(c *gin.Context) {
 	}
 
 	var req struct {
-		UserID      string                 `json:"user_id"`
-		PlanID      string                 `json:"plan_id"`
-		Amount      int64                  `json:"amount"`
-		Currency    string                 `json:"currency"`
-		Channel     string                 `json:"channel"`
-		Description string                 `json:"description"`
-		SuccessURL  string                 `json:"success_url"`
-		CancelURL   string                 `json:"cancel_url"`
-		Metadata    map[string]interface{} `json:"metadata"`
+		UserID       string                 `json:"user_id"`
+		PlanID       string                 `json:"plan_id"`
+		Amount       int64                  `json:"amount"`
+		Currency     string                 `json:"currency"`
+		Channel      string                 `json:"channel"`
+		TradeType    string                 `json:"trade_type"`
+		SuccessURL   string                 `json:"success_url"`
+		CancelURL    string                 `json:"cancel_url"`
+		Description  string                 `json:"description"`
+		OpenID         string                 `json:"open_id"`
+		ChannelAppID   string                 `json:"channel_app_id"`
+		SubMerchantID   string                 `json:"sub_merchant_id"`
+		SubChannelAppID string                 `json:"sub_channel_app_id"`
+		ClientIP        string                 `json:"client_ip"`
+		NotifyURL       string                 `json:"notify_url"`
+		Metadata     map[string]interface{} `json:"metadata"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.Error(c, http.StatusBadRequest, errors.ValidationError, "Invalid request body: "+err.Error())
@@ -58,23 +66,29 @@ func (h *PaymentHandler) CreatePayment(c *gin.Context) {
 	}
 	if req.Amount <= 0 {
 		response.Error(c, http.StatusBadRequest, errors.ValidationError, "amount must be positive")
-		return
 	}
 	if req.Channel == "" {
 		req.Channel = "alipay"
 	}
 
 	result, err := h.paymentService.CreatePayment(c.Request.Context(), &service.CreatePaymentInput{
-		AppID:       appID.(uuid.UUID),
-		UserID:      req.UserID,
-		PlanID:      req.PlanID,
-		Amount:      req.Amount,
-		Currency:    req.Currency,
-		ChannelName: req.Channel,
-		Description: req.Description,
-		SuccessURL:  req.SuccessURL,
-		CancelURL:   req.CancelURL,
-		Metadata:    req.Metadata,
+		AppID:        appID.(uuid.UUID),
+		UserID:       req.UserID,
+		PlanID:       req.PlanID,
+		Amount:       req.Amount,
+		Currency:     req.Currency,
+		ChannelName:  req.Channel,
+		TradeType:    req.TradeType,
+		Description:  req.Description,
+		SuccessURL:   req.SuccessURL,
+		CancelURL:    req.CancelURL,
+		OpenID:         req.OpenID,
+		ChannelAppID:   req.ChannelAppID,
+		SubMerchantID:  req.SubMerchantID,
+		SubChannelAppID: req.SubChannelAppID,
+		ClientIP:        req.ClientIP,
+		NotifyURL:       req.NotifyURL,
+		Metadata:        req.Metadata,
 	})
 	if err != nil {
 		handleServiceError(c, err)
@@ -128,41 +142,53 @@ func (h *PaymentHandler) GetPayment(c *gin.Context) {
 	})
 }
 
-// Callback handles POST /v1/payments/callback — unified channel callback endpoint.
+// Callback handles POST /v1/payments/callback/:channel — unified channel callback endpoint.
 func (h *PaymentHandler) Callback(c *gin.Context) {
 	channelName := c.Param("channel")
 	if channelName == "" {
-		channelName = "alipay"
-	}
-
-	var req struct {
-		PaymentID   string `json:"payment_id"`
-		ChannelTxID string `json:"channel_tx_id"`
-		Status      string `json:"status"`
-		Amount      int64  `json:"amount"`
-		Currency    string `json:"currency"`
-	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Error(c, http.StatusBadRequest, errors.ValidationError, "Invalid request body: "+err.Error())
+		response.Error(c, http.StatusBadRequest, errors.ValidationError, "channel is required")
 		return
 	}
 
-	body, _ := json.Marshal(req)
+	// Read raw body bytes — each channel has its own format
+	rawBody, err := io.ReadAll(c.Request.Body)
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, errors.ValidationError, "failed to read request body")
+		return
+	}
 
-	err := h.paymentService.HandleCallback(c.Request.Context(), channelName, &channel.CallbackData{
-		PaymentID:   req.PaymentID,
-		ChannelTxID: req.ChannelTxID,
-		Status:      req.Status,
-		Amount:      req.Amount,
-		Currency:    req.Currency,
-		RawBody:     body,
+	// Collect relevant HTTP headers (needed for WeChat V3 signature verification)
+	headers := make(map[string]string)
+	for _, key := range []string{
+		"Wechatpay-Timestamp",
+		"Wechatpay-Nonce",
+		"Wechatpay-Signature",
+		"Wechatpay-Serial",
+		"Content-Type",
+	} {
+		if v := c.GetHeader(key); v != "" {
+			headers[key] = v
+		}
+	}
+
+	result, err := h.paymentService.HandleCallback(c.Request.Context(), channelName, &channel.CallbackData{
+		RawBody: rawBody,
+		Headers: headers,
 	})
 	if err != nil {
 		handleServiceError(c, err)
 		return
 	}
 
-	response.Success(c, gin.H{"message": "callback processed"})
+	// Return channel-specific response
+	// Alipay expects "success" plain text; WeChat expects JSON
+	if channelName == model.ChannelAlipay {
+		c.String(http.StatusOK, "success")
+	} else {
+		response.Success(c, gin.H{"code": "SUCCESS", "message": "ok"})
+	}
+
+	_ = result // result is used for logging within the service
 }
 
 // handleServiceError converts service errors to HTTP responses.

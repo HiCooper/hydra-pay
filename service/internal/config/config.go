@@ -1,11 +1,16 @@
 package config
 
-import "os"
+import (
+	"log"
+	"os"
+)
 
 type Config struct {
 	Server   ServerConfig
 	Database DatabaseConfig
 	Wall     WallConfig
+	Alipay   AlipayConfig
+	Wechat   WechatConfig
 }
 
 type ServerConfig struct {
@@ -21,6 +26,28 @@ type WallConfig struct {
 	WebhookURL string
 }
 
+type AlipayConfig struct {
+	AppID              string
+	PrivateKey         string
+	AlipayPublicKey    string
+	NotifyURL          string
+	ReturnURL          string
+	GatewayHost        string
+	IsSandbox          bool
+	PrivateKeyPath     string
+	AlipayPublicKeyPath string
+}
+
+type WechatConfig struct {
+	MchID          string
+	APIv3Key       string
+	SerialNo       string
+	PrivateKey     string
+	PrivateKeyPath string
+	NotifyURL      string
+	IsSandbox      bool
+}
+
 func Load() *Config {
 	return &Config{
 		Server: ServerConfig{
@@ -33,6 +60,26 @@ func Load() *Config {
 		Wall: WallConfig{
 			WebhookURL: getEnv("WALL_WEBHOOK_URL", "http://localhost:8080/api/v1/webhooks/payment"),
 		},
+		Alipay: AlipayConfig{
+			AppID:               getEnv("ALIPAY_APP_ID", ""),
+			PrivateKey:          resolveKey("ALIPAY_PRIVATE_KEY", "ALIPAY_PRIVATE_KEY_PATH"),
+			AlipayPublicKey:     resolveKey("ALIPAY_ALIPAY_PUBLIC_KEY", "ALIPAY_ALIPAY_PUBLIC_KEY_PATH"),
+			NotifyURL:           getEnv("ALIPAY_NOTIFY_URL", ""),
+			ReturnURL:           getEnv("ALIPAY_RETURN_URL", ""),
+			GatewayHost:         getEnv("ALIPAY_GATEWAY_HOST", "openapi.alipay.com"),
+			IsSandbox:           getEnv("ALIPAY_SANDBOX", "false") == "true",
+			PrivateKeyPath:      getEnv("ALIPAY_PRIVATE_KEY_PATH", ""),
+			AlipayPublicKeyPath: getEnv("ALIPAY_ALIPAY_PUBLIC_KEY_PATH", ""),
+		},
+		Wechat: WechatConfig{
+			MchID:          getEnv("WECHAT_MCH_ID", ""),
+			APIv3Key:       getEnv("WECHAT_API_V3_KEY", ""),
+			SerialNo:       getEnv("WECHAT_SERIAL_NO", ""),
+			PrivateKey:     resolveKey("WECHAT_PRIVATE_KEY", "WECHAT_PRIVATE_KEY_PATH"),
+			PrivateKeyPath: getEnv("WECHAT_PRIVATE_KEY_PATH", ""),
+			NotifyURL:      getEnv("WECHAT_NOTIFY_URL", ""),
+			IsSandbox:      getEnv("WECHAT_SANDBOX", "false") == "true",
+		},
 	}
 }
 
@@ -41,4 +88,18 @@ func getEnv(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// resolveKey reads the key from file if *_PATH is set, otherwise from env var.
+func resolveKey(envKey, pathKey string) string {
+	path := os.Getenv(pathKey)
+	if path != "" {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			log.Printf("[config] WARNING: failed to read key file %s: %v", path, err)
+			return ""
+		}
+		return string(data)
+	}
+	return os.Getenv(envKey)
 }
