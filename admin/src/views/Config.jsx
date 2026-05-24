@@ -1,86 +1,48 @@
 import { useState, useEffect } from 'react'
+import { Descriptions, Tag, Card, Spin } from 'antd'
+import { CheckCircleOutlined, MinusCircleOutlined } from '@ant-design/icons'
 import { api } from '../api/index.js'
 
 export default function Config() {
   const [cfg, setCfg] = useState(null)
   useEffect(() => { api.config().then(setCfg) }, [])
-  if (!cfg) return <div className="flex items-center justify-center h-64" style={{ color: 'var(--color-text-muted)' }}>加载中...</div>
 
-  const ok = <span className="text-xs font-medium" style={{ color: 'var(--color-success)' }}>✓ 已配置</span>
-  const no = <span className="text-xs font-medium" style={{ color: 'var(--color-text-muted)' }}>— 未配置</span>
+  if (!cfg) return <div style={{ textAlign: 'center', padding: 80 }}><Spin size="large" /></div>
 
-  const alipayFields = [
-    ['App ID', cfg.alipay?.app_id || '—'],
-    ['环境', cfg.alipay?.sandbox === 'true' ? '沙箱' : '生产'],
-    ['ISV 私钥', cfg.alipay?.key_loaded ? ok : no],
-    ['支付宝公钥', cfg.alipay?.pub_loaded ? ok : no],
-  ]
-
-  const wechatFields = [
-    ['商户号', cfg.wechat?.mch_id || '—'],
-    ['证书序列号', cfg.wechat?.serial_no || '—'],
-    ['服务商私钥', cfg.wechat?.key_loaded ? ok : no],
-  ]
+  const ok = <Tag icon={<CheckCircleOutlined />} color="success">已配置</Tag>
+  const no = <Tag icon={<MinusCircleOutlined />} color="default">未配置</Tag>
 
   return (
     <div>
-      <h2 className="text-lg font-bold mb-5" style={{ color: 'var(--color-text-primary)' }}>渠道配置</h2>
+      <h2 style={{ fontSize: 18, fontWeight: 600, marginBottom: 20 }}>渠道配置</h2>
 
-      <div className="card mb-5">
-        <div className="px-5 py-4 border-b" style={{ borderColor: 'var(--color-border)' }}>
-          <h3 className="text-sm font-semibold">支付宝 ISV</h3>
-        </div>
-        <div className="p-5">
-          <div className="grid grid-cols-2 gap-y-3 gap-x-8">
-            {alipayFields.map(([label, value], i) => (
-              <div key={i} className="flex flex-col gap-0.5">
-                <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>{label}</span>
-                <span className="text-sm">{value}</span>
-              </div>
-            ))}
-            <div className="flex flex-col gap-0.5">
-              <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>异步通知地址</span>
-              <code className="text-xs" style={{ color: cfg.alipay?.notify_url ? 'var(--color-text-secondary)' : 'var(--color-text-muted)' }}>{cfg.alipay?.notify_url || '— 未配置'}</code>
-            </div>
-            <div className="flex flex-col gap-0.5">
-              <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>同步跳转地址</span>
-              <code className="text-xs" style={{ color: cfg.alipay?.return_url ? 'var(--color-text-secondary)' : 'var(--color-text-muted)' }}>{cfg.alipay?.return_url || '— 未配置'}</code>
-            </div>
-          </div>
-        </div>
-      </div>
+      <Card title="支付宝 ISV" style={{ marginBottom: 16 }}>
+        <Descriptions column={2} size="small">
+          <Descriptions.Item label="App ID">{cfg.alipay?.app_id || '—'}</Descriptions.Item>
+          <Descriptions.Item label="环境">{cfg.alipay?.sandbox === 'true' ? '沙箱' : '生产'}</Descriptions.Item>
+          <Descriptions.Item label="ISV 私钥">{cfg.alipay?.key_loaded ? ok : no}</Descriptions.Item>
+          <Descriptions.Item label="支付宝公钥">{cfg.alipay?.pub_loaded ? ok : no}</Descriptions.Item>
+          <Descriptions.Item label="异步通知地址"><code>{cfg.alipay?.notify_url || '— 未配置'}</code></Descriptions.Item>
+          <Descriptions.Item label="同步跳转地址"><code>{cfg.alipay?.return_url || '— 未配置'}</code></Descriptions.Item>
+        </Descriptions>
+      </Card>
 
-      <div className="card mb-5">
-        <div className="px-5 py-4 border-b" style={{ borderColor: 'var(--color-border)' }}>
-          <h3 className="text-sm font-semibold">微信支付服务商</h3>
-        </div>
-        <div className="p-5">
-          <div className="grid grid-cols-2 gap-y-3 gap-x-8">
-            {wechatFields.map(([label, value], i) => (
-              <div key={i} className="flex flex-col gap-0.5">
-                <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>{label}</span>
-                <span className="text-sm">{value}</span>
-              </div>
-            ))}
-            <div className="flex flex-col gap-0.5">
-              <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>异步通知地址</span>
-              <code className="text-xs" style={{ color: cfg.wechat?.notify_url ? 'var(--color-text-secondary)' : 'var(--color-text-muted)' }}>{cfg.wechat?.notify_url || '— 未配置'}</code>
-            </div>
-          </div>
-        </div>
-      </div>
+      <Card title="微信支付服务商" style={{ marginBottom: 16 }}>
+        <Descriptions column={2} size="small">
+          <Descriptions.Item label="商户号">{cfg.wechat?.mch_id || '—'}</Descriptions.Item>
+          <Descriptions.Item label="证书序列号">{cfg.wechat?.serial_no || '—'}</Descriptions.Item>
+          <Descriptions.Item label="服务商私钥">{cfg.wechat?.key_loaded ? ok : no}</Descriptions.Item>
+          <Descriptions.Item label="异步通知地址"><code>{cfg.wechat?.notify_url || '— 未配置'}</code></Descriptions.Item>
+        </Descriptions>
+      </Card>
 
-      <div className="card">
-        <div className="px-5 py-4 border-b" style={{ borderColor: 'var(--color-border)' }}>
-          <h3 className="text-sm font-semibold">全局 Webhook</h3>
-        </div>
-        <div className="p-5">
-          <div className="flex flex-col gap-0.5">
-            <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>兜底 Webhook 地址（应用未单独配置时使用）</span>
-            <code className="text-xs" style={{ color: cfg.global_webhook ? 'var(--color-text-secondary)' : 'var(--color-text-muted)' }}>{cfg.global_webhook || '— 未配置'}</code>
-          </div>
-        </div>
-      </div>
+      <Card title="全局 Webhook">
+        <Descriptions column={1} size="small">
+          <Descriptions.Item label="兜底 Webhook 地址（应用未单独配置时使用）">
+            <code>{cfg.global_webhook || '— 未配置'}</code>
+          </Descriptions.Item>
+        </Descriptions>
+      </Card>
     </div>
   )
 }

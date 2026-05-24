@@ -122,7 +122,18 @@ func (h *Handler) OrderDetail(c *gin.Context) {
 
 	events, _ := h.eventRepo.ListByPayment(id)
 
-	response.Success(c, gin.H{"payment": payment, "events": events})
+	var alipayCbs []model.AlipayCallback
+	h.db.Where("payment_id = ?", id).Order("created_at DESC").Find(&alipayCbs)
+
+	var wechatCbs []model.WeChatCallback
+	h.db.Where("payment_id = ?", id).Order("created_at DESC").Find(&wechatCbs)
+
+	response.Success(c, gin.H{
+		"payment":         payment,
+		"events":          events,
+		"alipay_callbacks": alipayCbs,
+		"wechat_callbacks": wechatCbs,
+	})
 }
 
 // Events returns this app's payment events.

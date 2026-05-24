@@ -14,8 +14,10 @@ type Config struct {
 }
 
 type ServerConfig struct {
-	Port string
-	Mode string
+	Port         string
+	Mode         string
+	AdminAPIPath string
+	CORSOrigins  string
 }
 
 type DatabaseConfig struct {
@@ -51,8 +53,10 @@ type WechatConfig struct {
 func Load() *Config {
 	return &Config{
 		Server: ServerConfig{
-			Port: getEnv("PORT", "8081"),
-			Mode: getEnv("GIN_MODE", "debug"),
+			Port:         getEnv("PORT", "8081"),
+			Mode:         getEnv("GIN_MODE", "debug"),
+			AdminAPIPath: getEnv("ADMIN_API_PATH", "/api/admin"),
+			CORSOrigins:  getEnv("CORS_ORIGINS", "http://localhost:5173,http://localhost:5174"),
 		},
 		Database: DatabaseConfig{
 			DSN: getEnv("DATABASE_URL", "postgres://hydra:hydra_secret@localhost:5432/hydra_pay?sslmode=disable"),

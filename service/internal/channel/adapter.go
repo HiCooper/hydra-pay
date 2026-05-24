@@ -2,6 +2,8 @@ package channel
 
 import (
 	"context"
+
+	"github.com/hydra/pay-service/internal/model"
 )
 
 // CreatePaymentRequest is the unified request to create a payment on any channel.
@@ -36,12 +38,17 @@ type CallbackData struct {
 }
 
 // CallbackResult is the verified, parsed result returned from the adapter.
+// Contains the normalized fields plus the channel-specific callback record ready for persistence.
 type CallbackResult struct {
 	ChannelTxID string
 	PaymentID   string
 	Status      string
 	Amount      int64
 	Currency    string
+
+	// Channel-specific callback records — set by the respective adapter.
+	AlipayCallback *model.AlipayCallback
+	WeChatCallback *model.WeChatCallback
 }
 
 // Adapter is the interface that every payment channel must implement.

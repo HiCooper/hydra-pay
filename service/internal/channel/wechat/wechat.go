@@ -155,7 +155,7 @@ func (a *Adapter) createNativePayment(ctx context.Context, req *channel.CreatePa
 
 	log.Printf("[wechat] native prepay success: out_trade_no=%s", req.PaymentID)
 	return &channel.CreatePaymentResponse{
-		ChannelTxID: req.PaymentID,
+		ChannelTxID: "",
 		QRCodeURL:   *resp.CodeUrl,
 		RawResponse: map[string]interface{}{"code_url": *resp.CodeUrl},
 	}, nil
@@ -190,7 +190,7 @@ func (a *Adapter) createJSAPIPayment(ctx context.Context, req *channel.CreatePay
 
 	log.Printf("[wechat] jsapi prepay success: out_trade_no=%s, prepay_id=%s", req.PaymentID, *resp.PrepayId)
 	return &channel.CreatePaymentResponse{
-		ChannelTxID: req.PaymentID,
+		ChannelTxID: "",
 		PaymentURL:  *resp.PrepayId,
 		RawResponse: structToMap(resp),
 	}, nil
@@ -218,7 +218,7 @@ func (a *Adapter) createAppPayment(ctx context.Context, req *channel.CreatePayme
 
 	log.Printf("[wechat] app prepay success: out_trade_no=%s, prepay_id=%s", req.PaymentID, *resp.PrepayId)
 	return &channel.CreatePaymentResponse{
-		ChannelTxID: req.PaymentID,
+		ChannelTxID: "",
 		PaymentURL:  *resp.PrepayId,
 		RawResponse: structToMap(resp),
 	}, nil
@@ -252,7 +252,7 @@ func (a *Adapter) createPartnerNativePayment(ctx context.Context, req *channel.C
 
 	log.Printf("[wechat] partner native prepay success: out_trade_no=%s, sub_mchid=%s", req.PaymentID, req.SubMerchantID)
 	return &channel.CreatePaymentResponse{
-		ChannelTxID: req.PaymentID,
+		ChannelTxID: "",
 		QRCodeURL:   *resp.CodeUrl,
 		RawResponse: map[string]interface{}{"code_url": *resp.CodeUrl},
 	}, nil
@@ -288,7 +288,7 @@ func (a *Adapter) createPartnerJSAPIPayment(ctx context.Context, req *channel.Cr
 
 	log.Printf("[wechat] partner jsapi prepay success: out_trade_no=%s, sub_mchid=%s", req.PaymentID, req.SubMerchantID)
 	return &channel.CreatePaymentResponse{
-		ChannelTxID: req.PaymentID,
+		ChannelTxID: "",
 		PaymentURL:  *resp.PrepayId,
 		RawResponse: structToMap(resp),
 	}, nil
@@ -317,7 +317,7 @@ func (a *Adapter) createPartnerAppPayment(ctx context.Context, req *channel.Crea
 
 	log.Printf("[wechat] partner app prepay success: out_trade_no=%s, sub_mchid=%s", req.PaymentID, req.SubMerchantID)
 	return &channel.CreatePaymentResponse{
-		ChannelTxID: req.PaymentID,
+		ChannelTxID: "",
 		PaymentURL:  *resp.PrepayId,
 		RawResponse: structToMap(resp),
 	}, nil
@@ -387,14 +387,28 @@ func (a *Adapter) VerifyCallback(ctx context.Context, data *channel.CallbackData
 	var transaction struct {
 		OutTradeNo     string `json:"out_trade_no"`
 		TransactionID  string `json:"transaction_id"`
+		TradeType      string `json:"trade_type"`
 		TradeState     string `json:"trade_state"`
 		TradeStateDesc string `json:"trade_state_desc"`
-		SubMchid       string `json:"sub_mchid"`
+		BankType       string `json:"bank_type"`
+		SuccessTime    string `json:"success_time"`
+		Attach         string `json:"attach"`
+		Mchid          string `json:"mchid"`
+		Appid          string `json:"appid"`
+		SpAppid        string `json:"sp_appid"`
 		SpMchid        string `json:"sp_mchid"`
-		Amount         struct {
-			Total    int64  `json:"total"`
-			Currency string `json:"currency"`
+		SubAppid       string `json:"sub_appid"`
+		SubMchid       string `json:"sub_mchid"`
+		Payer          struct {
+			Openid string `json:"openid"`
+		} `json:"payer"`
+		Amount struct {
+			Total         int64  `json:"total"`
+			PayerTotal    int64  `json:"payer_total"`
+			Currency      string `json:"currency"`
+			PayerCurrency string `json:"payer_currency"`
 		} `json:"amount"`
+		PromotionDetail json.RawMessage `json:"promotion_detail"`
 	}
 	if err := json.Unmarshal(plaintext, &transaction); err != nil {
 		return nil, errors.New(errors.ValidationError, "failed to parse wechat transaction from callback")
@@ -403,12 +417,39 @@ func (a *Adapter) VerifyCallback(ctx context.Context, data *channel.CallbackData
 	log.Printf("[wechat] callback verified: out_trade_no=%s, transaction_id=%s, state=%s, sub_mchid=%s",
 		transaction.OutTradeNo, transaction.TransactionID, transaction.TradeState, transaction.SubMchid)
 
+	cb := &model.WeChatCallback{
+		NotificationID:      notification.ID,
+		EventType:           notification.EventType,
+		TransactionID:       transaction.TransactionID,
+		OutTradeNo:          transaction.OutTradeNo,
+		TradeType:           transaction.TradeType,
+		TradeState:          transaction.TradeState,
+		TradeStateDesc:      transaction.TradeStateDesc,
+		BankType:            transaction.BankType,
+		SuccessTime:         transaction.SuccessTime,
+		Attach:              transaction.Attach,
+		Mchid:               transaction.Mchid,
+		Appid:               transaction.Appid,
+		SpAppid:             transaction.SpAppid,
+		SpMchid:             transaction.SpMchid,
+		SubAppid:            transaction.SubAppid,
+		SubMchid:            transaction.SubMchid,
+		PayerOpenid:         transaction.Payer.Openid,
+		AmountTotal:         transaction.Amount.Total,
+		AmountPayerTotal:    transaction.Amount.PayerTotal,
+		AmountCurrency:      transaction.Amount.Currency,
+		AmountPayerCurrency: transaction.Amount.PayerCurrency,
+		PromotionDetail:     []byte(transaction.PromotionDetail),
+		RawBody:             string(data.RawBody),
+	}
+
 	return &channel.CallbackResult{
-		ChannelTxID: transaction.TransactionID,
-		PaymentID:   transaction.OutTradeNo,
-		Status:      mapWechatTradeState(transaction.TradeState),
-		Amount:      transaction.Amount.Total,
-		Currency:    transaction.Amount.Currency,
+		ChannelTxID:    transaction.TransactionID,
+		PaymentID:      transaction.OutTradeNo,
+		Status:         mapWechatTradeState(transaction.TradeState),
+		Amount:         transaction.Amount.Total,
+		Currency:       transaction.Amount.Currency,
+		WeChatCallback: cb,
 	}, nil
 }
 

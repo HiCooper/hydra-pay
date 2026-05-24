@@ -1,120 +1,93 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { Tabs, Form, Input, Select, Button, Card, Table, Tag, message } from 'antd'
+import { SERVER } from '../api/index.js'
 
 const H = { 'X-Admin-Key': 'admin-dev-key', 'Content-Type': 'application/json' }
 
 export default function Tools() {
-  const [tab, setTab] = useState('quickpay')
-
   return (
     <div>
-      <h2 className="text-lg font-bold mb-5" style={{ color: 'var(--color-text-primary)' }}>测试工具</h2>
-
-      <div className="flex gap-1 mb-5 p-1 rounded-lg" style={{ background: '#f1f5f9', width: 'fit-content' }}>
-        {[
-          { key: 'quickpay', label: '快速下单' },
-          { key: 'callback', label: '回调模拟' },
-          { key: 'webhook', label: 'Webhook 测试' },
-          { key: 'connectivity', label: '连通性检查' },
-        ].map(t => (
-          <button key={t.key} onClick={() => setTab(t.key)}
-            className="px-4 py-1.5 rounded-md text-xs font-medium transition-all"
-            style={tab === t.key ? { background: '#fff', color: 'var(--color-text-primary)', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' } : { background: 'transparent', color: 'var(--color-text-secondary)' }}
-          >{t.label}</button>
-        ))}
-      </div>
-
-      {tab === 'quickpay' && <QuickPay />}
-      {tab === 'callback' && <CallbackSimulator />}
-      {tab === 'webhook' && <WebhookTester />}
-      {tab === 'connectivity' && <Connectivity />}
+      <h2 style={{ fontSize: 18, fontWeight: 600, marginBottom: 20 }}>测试工具</h2>
+      <Tabs
+        items={[
+          { key: 'quickpay', label: '快速下单', children: <QuickPay /> },
+          { key: 'refund', label: '退款测试', children: <RefundTool /> },
+	          { key: 'callback', label: '回调模拟', children: <CallbackSimulator /> },
+          { key: 'webhook', label: 'Webhook 测试', children: <WebhookTester /> },
+          { key: 'connectivity', label: '连通性检查', children: <Connectivity /> },
+        ]}
+      />
     </div>
   )
 }
 
 function QuickPay() {
-  const [form, setForm] = useState({ channel: 'alipay', trade_type: 'native', amount: 1, description: '测试订单', app_key: 'test-pay-key-001' })
+  const [form] = Form.useForm()
   const [result, setResult] = useState(null)
   const [loading, setLoading] = useState(false)
 
-  async function submit(e) {
-    e.preventDefault()
+  async function submit(values) {
     setLoading(true)
-    const res = await fetch('/v1/payments/create', {
-      method: 'POST', headers: { 'X-API-Key': form.app_key, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ user_id: 'test_user', amount: parseInt(form.amount), channel: form.channel, trade_type: form.trade_type, description: form.description, channel_app_id: form.channel === 'wechat' ? 'wx_test' : undefined, sub_merchant_id: form.sub_merchant_id || undefined, notify_url: form.notify_url || undefined })
+    const res = await fetch(SERVER + '/v1/payments/create', {
+      method: 'POST', headers: { 'X-API-Key': values.app_key, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        user_id: 'test_user', amount: parseInt(values.amount), channel: values.channel,
+        trade_type: values.trade_type, description: values.description,
+        channel_app_id: values.channel === 'wechat' ? 'wx_test' : undefined,
+        sub_merchant_id: values.sub_merchant_id || undefined,
+        notify_url: values.notify_url || undefined,
+      })
     })
-    const d = await res.json()
-    setResult(d)
+    setResult(await res.json())
     setLoading(false)
   }
 
   return (
-    <div className="grid grid-cols-2 gap-5">
-      <div className="card p-5">
-        <h3 className="text-sm font-semibold mb-4">创建测试支付</h3>
-        <form onSubmit={submit} className="flex flex-col gap-3">
-          <div>
-            <label className="block text-xs font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>渠道</label>
-            <select value={form.channel} onChange={e => setForm({ ...form, channel: e.target.value })} className="w-full">
-              <option value="alipay">支付宝</option>
-              <option value="wechat">微信</option>
-            </select>
-          </div>
-          <div>
-            <label className="block text-xs font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>支付方式</label>
-            <select value={form.trade_type} onChange={e => setForm({ ...form, trade_type: e.target.value })} className="w-full">
-              <option value="native">扫码支付</option>
-              <option value="h5">H5 支付</option>
-              <option value="jsapi">JSAPI 支付</option>
-              <option value="app">App 支付</option>
-            </select>
-          </div>
-          <div>
-            <label className="block text-xs font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>金额 (分)</label>
-            <input type="number" value={form.amount} onChange={e => setForm({ ...form, amount: e.target.value })} className="w-full" min="1" />
-          </div>
-          <div>
-            <label className="block text-xs font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>描述</label>
-            <input value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} className="w-full" />
-          </div>
-          <div>
-            <label className="block text-xs font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>子商户 ID (服务商模式)</label>
-            <input value={form.sub_merchant_id || ''} onChange={e => setForm({ ...form, sub_merchant_id: e.target.value })} className="w-full" placeholder="可选" />
-          </div>
-          <div>
-            <label className="block text-xs font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>回调地址 (覆盖默认)</label>
-            <input value={form.notify_url || ''} onChange={e => setForm({ ...form, notify_url: e.target.value })} className="w-full" placeholder="留空使用默认回调地址" />
-          </div>
-          <div>
-            <label className="block text-xs font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>API Key</label>
-            <input value={form.app_key} onChange={e => setForm({ ...form, app_key: e.target.value })} className="w-full" />
-          </div>
-          <button type="submit" disabled={loading} className="btn btn-primary w-full justify-center mt-2">
-            {loading ? '创建中...' : '创建支付'}
-          </button>
-        </form>
-      </div>
-      <div className="card p-5">
-        <h3 className="text-sm font-semibold mb-4">结果</h3>
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
+      <Card title="创建测试支付">
+        <Form form={form} layout="vertical" onFinish={submit} initialValues={{ channel: 'alipay', trade_type: 'native', amount: 1, description: '测试订单', sub_merchant_id: '2088721101618715', app_key: 'test-pay-key-001' }}>
+          <Form.Item name="channel" label="渠道"><Select options={[{ value: 'alipay', label: '支付宝' }, { value: 'wechat', label: '微信' }]} /></Form.Item>
+          <Form.Item name="trade_type" label="支付方式"><Select options={[{ value: 'native', label: '扫码支付' }, { value: 'h5', label: 'H5 支付' }, { value: 'jsapi', label: 'JSAPI 支付' }, { value: 'app', label: 'App 支付' }]} /></Form.Item>
+          <Form.Item name="amount" label="金额 (分)"><Input type="number" min={1} /></Form.Item>
+          <Form.Item name="description" label="描述"><Input /></Form.Item>
+          <Form.Item name="sub_merchant_id" label="子商户 ID (服务商模式)"><Input placeholder="可选" /></Form.Item>
+          <Form.Item name="notify_url" label="回调地址 (覆盖默认)"><Input placeholder="留空使用默认回调地址" /></Form.Item>
+          <Form.Item name="app_key" label="API Key"><Input /></Form.Item>
+          <Button type="primary" htmlType="submit" loading={loading} block>创建支付</Button>
+        </Form>
+      </Card>
+      <Card title="结果">
         {result ? (
-          <div className="text-xs font-mono" style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
-            <div className="mb-2"><span className="badge" style={{ background: result.success ? '#ecfdf5' : '#fef2f2', color: result.success ? '#059669' : '#dc2626' }}>{result.success ? '成功' : '失败'}</span></div>
-            {result.success ? (
-              <div className="flex flex-col gap-2">
-                <div><span className="text-text-muted">Payment ID:</span> <code>{result.data?.payment_id}</code></div>
-                <div><span className="text-text-muted">Status:</span> {result.data?.status}</div>
-                {result.data?.qr_code_url && <div><span className="text-text-muted">QR Code:</span> <a href={result.data.qr_code_url} target="_blank" className="text-accent">{result.data.qr_code_url.slice(0, 50)}...</a></div>}
-                {result.data?.payment_url && <div><span className="text-text-muted">Payment URL:</span> <a href={result.data.payment_url} target="_blank" className="text-accent underline">打开支付页</a></div>}
-              </div>
-            ) : (
-              <div className="flex flex-col gap-1">
-                <div><span className="text-text-muted">Error Code:</span> {result.error?.code}</div>
-                <div><span className="text-text-muted">Message:</span> {result.error?.message}</div>
+          <div style={{ fontSize: 13 }}>
+            <Tag color={result.success ? 'green' : 'red'}>{result.success ? '成功' : '失败'}</Tag>
+            {result.success ? (() => {
+                const qrUrl = result.data?.qr_code_url || result.data?.payment_url
+                return (
+                  <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    <div>Trade No: <code>{result.data?.trade_no}</code></div>
+                    <div>Status: {result.data?.status}</div>
+                    {qrUrl && (
+                      <div style={{ textAlign: 'center' }}>
+                        <img
+                          src={`https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(qrUrl)}`}
+                          alt="支付二维码" style={{ border: '1px solid #e2e8f0', borderRadius: 8, maxWidth: 180 }}
+                        />
+                        <div style={{ marginTop: 4 }}>
+                          <a href={qrUrl} target="_blank" rel="noreferrer" style={{ fontSize: 12 }}>在浏览器中打开 ↗</a>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )
+              })() : (
+              <div style={{ marginTop: 12 }}>
+                <div>Error: {result.error?.code}</div>
+                <div>Message: {result.error?.message}</div>
               </div>
             )}
           </div>
-        ) : <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>填写表单并点击「创建支付」查看结果</p>}
-      </div>
+        ) : <span style={{ color: '#94a3b8', fontSize: 13 }}>填写表单并点击「创建支付」查看结果</span>}
+      </Card>
     </div>
   )
 }
@@ -124,63 +97,58 @@ function CallbackSimulator() {
   const [result, setResult] = useState(null)
 
   async function simulate() {
-    const res = await fetch('/api/admin/tools/simulate-callback', { method: 'POST', headers: H, body: JSON.stringify({ payment_id: paymentId, status: 'paid' }) })
+    if (!paymentId) { message.warning('请输入 payment_id'); return }
+    const res = await fetch(SERVER + '/api/admin/tools/simulate-callback', { method: 'POST', headers: H, body: JSON.stringify({ payment_id: paymentId, status: 'paid' }) })
     setResult(await res.json())
   }
 
   return (
-    <div className="card p-5 max-w-lg">
-      <h3 className="text-sm font-semibold mb-4">回调模拟</h3>
-      <p className="text-xs mb-4" style={{ color: 'var(--color-text-muted)' }}>直接标记指定订单为已支付状态，用于测试 webhook 通知和状态变更流程。不会真正调用支付宝/微信接口。</p>
-      <div className="flex gap-3 mb-4">
-        <input value={paymentId} onChange={e => setPaymentId(e.target.value)} placeholder="输入 payment_id" className="flex-1" />
-        <button onClick={simulate} className="btn btn-primary">模拟回调</button>
-      </div>
+    <Card title="回调模拟" style={{ maxWidth: 520 }}>
+      <p style={{ color: '#94a3b8', fontSize: 13, marginBottom: 16 }}>直接标记指定订单为已支付状态，用于测试 webhook 通知和状态变更流程。不会真正调用支付宝/微信接口。</p>
+      <Form.Item label="交易号 (TradeNo)"><Input.Search value={paymentId} onChange={e => setPaymentId(e.target.value)} onSearch={simulate} enterButton="模拟回调" placeholder="22位交易号，如 2026052400114411571487" /></Form.Item>
       {result && (
-        <div className="text-xs font-mono p-3 rounded-lg" style={{ background: result.success ? '#ecfdf5' : '#fef2f2' }}>
+        <div style={{ padding: 12, borderRadius: 8, background: result.success ? '#ecfdf5' : '#fef2f2', fontSize: 13 }}>
           {result.success ? '✅ ' + result.data?.message : '❌ ' + (result.error?.message || '失败')}
-          {result.data?.payment && <div className="mt-1" style={{ color: 'var(--color-text-secondary)' }}>Status: {result.data.payment.Status}</div>}
+          {result.data?.payment && <div style={{ color: '#64748b', marginTop: 4 }}>Status: {result.data.payment.Status}</div>}
         </div>
       )}
-    </div>
+    </Card>
   )
 }
 
 function WebhookTester() {
-  const [appId, setAppId] = useState('')
   const [apps, setApps] = useState([])
+  const [appId, setAppId] = useState('')
   const [result, setResult] = useState(null)
 
-  async function loadApps() {
-    const res = await fetch('/api/admin/apps', { headers: H })
-    const d = await res.json()
-    setApps(d.data || [])
-  }
-  useState(() => { loadApps() }, [])
+  useEffect(() => {
+    fetch(SERVER + '/api/admin/apps', { headers: H }).then(r => r.json()).then(d => setApps(d.data || []))
+  }, [])
 
   async function test() {
-    const res = await fetch('/api/admin/tools/test-webhook', { method: 'POST', headers: H, body: JSON.stringify({ app_id: appId }) })
+    if (!appId) { message.warning('请选择应用'); return }
+    const res = await fetch(SERVER + '/api/admin/tools/test-webhook', { method: 'POST', headers: H, body: JSON.stringify({ app_id: appId }) })
     setResult(await res.json())
   }
 
   return (
-    <div className="card p-5 max-w-lg">
-      <h3 className="text-sm font-semibold mb-4">Webhook 推送测试</h3>
-      <p className="text-xs mb-4" style={{ color: 'var(--color-text-muted)' }}>向已配置 webhook_url 的应用发送一条测试消息，验证回调地址可达性。</p>
-      <div className="flex gap-3 mb-4">
-        <select value={appId} onChange={e => setAppId(e.target.value)} className="flex-1">
-          <option value="">选择应用</option>
-          {apps.filter(a => a.WebhookURL).map(a => <option key={a.ID} value={a.ID}>{a.Name} ({a.WebhookURL?.slice(0, 40)})</option>)}
-        </select>
-        <button onClick={test} disabled={!appId} className="btn btn-primary">发送测试</button>
-      </div>
+    <Card title="Webhook 推送测试" style={{ maxWidth: 520 }}>
+      <p style={{ color: '#94a3b8', fontSize: 13, marginBottom: 16 }}>向已配置 webhook_url 的应用发送一条测试消息，验证回调地址可达性。</p>
+      <Form.Item label="选择应用">
+        <Select
+          value={appId || undefined} onChange={setAppId} style={{ width: '100%' }}
+          placeholder="选择应用"
+          options={apps.filter(a => a.WebhookURL).map(a => ({ value: a.ID, label: `${a.Name} (${a.WebhookURL?.slice(0, 40)})` }))}
+        />
+      </Form.Item>
+      <Button type="primary" onClick={test} disabled={!appId}>发送测试</Button>
       {result && (
-        <div className="text-xs font-mono p-3 rounded-lg" style={{ background: result.success ? '#ecfdf5' : '#fef2f2' }}>
+        <div style={{ marginTop: 16, padding: 12, borderRadius: 8, background: result.success ? '#ecfdf5' : '#fef2f2', fontSize: 13 }}>
           <div>{result.success ? '✅ ' + result.data?.message : '❌ ' + (result.error?.message || '失败')}</div>
-          {result.data?.response_code && <div className="mt-1">HTTP {result.data.response_code}</div>}
+          {result.data?.response_code && <div style={{ marginTop: 4 }}>HTTP {result.data.response_code}</div>}
         </div>
       )}
-    </div>
+    </Card>
   )
 }
 
@@ -190,31 +158,80 @@ function Connectivity() {
 
   async function check() {
     setLoading(true)
-    const res = await fetch('/api/admin/tools/connectivity', { headers: H })
+    const res = await fetch(SERVER + '/api/admin/tools/connectivity', { headers: H })
     setResults((await res.json()).data?.results || [])
     setLoading(false)
   }
 
+  const columns = [
+    { title: '渠道', dataIndex: 'channel', width: 80 },
+    { title: '网关', dataIndex: 'gateway', render: v => <code style={{ fontSize: 12 }}>{v}</code> },
+    { title: '状态', dataIndex: 'status', width: 100, render: v => <Tag color={v === 'unreachable' ? 'red' : 'green'}>{v}</Tag> },
+    { title: '延迟', dataIndex: 'latency', width: 100 },
+  ]
+
   return (
-    <div className="card p-5 max-w-lg">
-      <h3 className="text-sm font-semibold mb-4">网关连通性检查</h3>
-      <p className="text-xs mb-4" style={{ color: 'var(--color-text-muted)' }}>检测支付宝和微信支付网关的可达性。</p>
-      <button onClick={check} disabled={loading} className="btn btn-primary mb-4">{loading ? '检测中...' : '开始检测'}</button>
-      {results && (
-        <table>
-          <thead><tr><th>渠道</th><th>网关</th><th>状态</th><th>延迟</th></tr></thead>
-          <tbody>
-            {results.map((r, i) => (
-              <tr key={i}>
-                <td className="font-medium">{r.channel}</td>
-                <td className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>{r.gateway}</td>
-                <td><span className="badge" style={{ background: r.status.startsWith('HTTP 2') || r.status.startsWith('HTTP 3') ? '#ecfdf5' : '#fef2f2', color: r.status === 'unreachable' ? '#dc2626' : '#059669' }}>{r.status}</span></td>
-                <td className="text-xs font-mono">{r.latency}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
+    <Card title="网关连通性检查" style={{ maxWidth: 520 }}>
+      <p style={{ color: '#94a3b8', fontSize: 13, marginBottom: 16 }}>检测支付宝和微信支付网关的可达性。</p>
+      <Button type="primary" onClick={check} loading={loading} style={{ marginBottom: 16 }}>开始检测</Button>
+      {results && <Table columns={columns} dataSource={results} rowKey={(_, i) => i} size="small" pagination={false} />}
+    </Card>
+  )
+}
+
+function RefundTool() {
+  const [form] = Form.useForm()
+  const [result, setResult] = useState(null)
+  const [loading, setLoading] = useState(false)
+
+  async function submit(values) {
+    setLoading(true)
+    const res = await fetch(SERVER + '/api/admin/tools/test-refund', {
+      method: 'POST', headers: H,
+      body: JSON.stringify({ trade_no: values.trade_no, refund_amount: values.refund_amount, refund_reason: values.refund_reason || '' }),
+    })
+    setResult(await res.json())
+    setLoading(false)
+  }
+
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
+      <Card title="退款测试（自动识别渠道）">
+        <Form form={form} layout="vertical" onFinish={submit} initialValues={{ refund_amount: '0.01' }}>
+          <Form.Item name="trade_no" label="交易号 (TradeNo)" rules={[{ required: true, message: '请输入交易号' }]}>
+            <Input placeholder="22位交易号，如 2026052400114411571487" />
+          </Form.Item>
+          <Form.Item name="refund_amount" label="退款金额（元）" rules={[{ required: true, message: '请输入退款金额' }]}>
+            <Input placeholder="0.01" />
+          </Form.Item>
+          <Form.Item name="refund_reason" label="退款原因">
+            <Input placeholder="测试退款" />
+          </Form.Item>
+          <Button type="primary" htmlType="submit" loading={loading} block>申请退款</Button>
+        </Form>
+      </Card>
+      <Card title="结果">
+        {result ? (
+          <div style={{ fontSize: 13 }}>
+            <Tag color={result.success ? 'green' : 'red'}>{result.success ? '退款成功' : '退款失败'}</Tag>
+            {result.success ? (
+              <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <div>渠道: {result.data?.channel}</div>
+                <div>退款金额: ¥{result.data?.refund_fee || (result.data?.amount?.refund ? (result.data.amount.refund / 100).toFixed(2) : '—')}</div>
+                {result.data?.trade_no && <div>支付宝交易号: <code>{result.data.trade_no}</code></div>}
+                {result.data?.refund_id && <div>微信退款单号: <code>{result.data.refund_id}</code></div>}
+                {result.data?.transaction_id && <div>微信交易号: <code>{result.data.transaction_id}</code></div>}
+                {result.data?.status && <div>退款状态: <Tag color="green">{result.data.status}</Tag></div>}
+              </div>
+            ) : (
+              <div style={{ marginTop: 12 }}>
+                <div>Error: {result.error?.code}</div>
+                <div>Message: {result.error?.message}</div>
+              </div>
+            )}
+          </div>
+        ) : <span style={{ color: '#94a3b8', fontSize: 13 }}>输入已支付订单的交易号，点击「申请退款」</span>}
+      </Card>
     </div>
   )
 }

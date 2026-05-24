@@ -13,6 +13,7 @@ const (
 	EventCallbackReceived = "callback_received"
 	EventStatusChanged   = "status_changed"
 	EventWebhookSent     = "webhook_sent"
+	EventRefund          = "refund"
 )
 
 // PaymentEvent records every key action in a payment's lifecycle.

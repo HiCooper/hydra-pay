@@ -1,34 +1,41 @@
-import { Routes, Route, NavLink, Navigate } from 'react-router-dom'
+import { Routes, Route, useNavigate, useLocation, Navigate } from 'react-router-dom'
 import { useState, useEffect } from 'react'
+import { Layout, Menu, Button, Input, message } from 'antd'
+import { DashboardOutlined, OrderedListOutlined, SettingOutlined, LogoutOutlined } from '@ant-design/icons'
 import { api, login, logout, isLoggedIn } from './api/index.js'
 import Dashboard from './views/Dashboard.jsx'
 import Orders from './views/Orders.jsx'
 import Settings from './views/Settings.jsx'
+import './index.css'
+
+const { Sider, Content } = Layout
 
 function LoginPage() {
   const [key, setKey] = useState('')
-  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
+
   async function doLogin(e) {
     e.preventDefault()
+    setLoading(true)
     login(key)
     try { await api.me(); window.location.href = '/portal' }
-    catch (err) { logout(); setError('API Key 无效') }
+    catch (err) { logout(); message.error('API Key 无效'); setLoading(false) }
   }
+
   return (
-    <div className="min-h-screen flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #0f1322 0%, #1a1f36 50%, #2d3748 100%)' }}>
-      <div className="w-full max-w-md px-4">
-        <div className="text-center mb-8">
-          <h1 className="text-2xl font-bold tracking-tight" style={{ color: '#fff' }}>星河支付</h1>
-          <p className="text-sm mt-2" style={{ color: 'rgba(255,255,255,0.5)' }}>开发者门户</p>
+    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'linear-gradient(135deg, #0f1322 0%, #1a1f36 50%, #2d3748 100%)' }}>
+      <div style={{ width: 400, padding: '0 16px' }}>
+        <div style={{ textAlign: 'center', marginBottom: 32 }}>
+          <h1 style={{ color: '#fff', fontSize: 24, fontWeight: 700, margin: 0 }}>星河支付</h1>
+          <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: 14, marginTop: 8 }}>开发者门户</p>
         </div>
-        <div className="card p-6">
+        <div style={{ background: '#fff', borderRadius: 12, padding: 24 }}>
           <form onSubmit={doLogin}>
-            <label className="block text-xs font-medium mb-2" style={{ color: 'var(--color-text-secondary)' }}>API Key</label>
-            <input value={key} onChange={e => setKey(e.target.value)} placeholder="sk_..." className="w-full mb-3 font-mono" autoFocus />
-            {error && <p className="text-xs mb-3" style={{ color: 'var(--color-danger)' }}>{error}</p>}
-            <button type="submit" className="btn btn-primary w-full justify-center">登录</button>
+            <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: '#64748b', marginBottom: 8 }}>API Key</label>
+            <Input.Password value={key} onChange={e => setKey(e.target.value)} placeholder="sk_..." style={{ marginBottom: 16 }} autoFocus />
+            <Button type="primary" htmlType="submit" loading={loading} block>登录</Button>
           </form>
-          <p className="text-xs mt-4 text-center" style={{ color: 'var(--color-text-muted)' }}>还没有 API Key？请联系管理员创建应用</p>
+          <p style={{ color: '#94a3b8', fontSize: 12, textAlign: 'center', marginTop: 16, marginBottom: 0 }}>还没有 API Key？请联系管理员创建应用</p>
         </div>
       </div>
     </div>
@@ -36,36 +43,46 @@ function LoginPage() {
 }
 
 function PortalLayout() {
+  const navigate = useNavigate()
+  const location = useLocation()
   const [app, setApp] = useState(null)
   useEffect(() => { api.me().then(setApp).catch(() => logout()) }, [])
-  if (!app) return <div className="flex items-center justify-center min-h-screen" style={{ color: 'var(--color-text-muted)' }}>加载中...</div>
+  if (!app) return <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', color: '#94a3b8' }}>加载中...</div>
+
+  const selectedKey = '/' + location.pathname.split('/').filter(Boolean)[0]
+
+  const navItems = [
+    { key: '/', icon: <DashboardOutlined />, label: '概览' },
+    { key: '/orders', icon: <OrderedListOutlined />, label: '支付订单' },
+    { key: '/settings', icon: <SettingOutlined />, label: '设置' },
+  ]
 
   return (
-    <div className="flex min-h-screen">
-      <aside className="w-[220px] flex-shrink-0 flex flex-col" style={{ background: 'var(--color-navy-900)' }}>
-        <div className="px-5 py-6 border-b" style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
-          <h1 className="text-base font-bold tracking-tight" style={{ color: '#fff' }}>星河支付</h1>
-          <p className="text-xs mt-1" style={{ color: 'rgba(255,255,255,0.35)' }}>{app.name}</p>
+    <Layout style={{ minHeight: '100vh' }}>
+      <Sider width={220} style={{ background: '#0f1322' }} theme="dark">
+        <div style={{ padding: '20px 24px 16px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+          <div style={{ color: '#fff', fontSize: 16, fontWeight: 700 }}>星河支付</div>
+          <div style={{ color: 'rgba(255,255,255,0.35)', fontSize: 12, marginTop: 4 }}>{app.name}</div>
         </div>
-        <nav className="flex-1 py-4">
-          <NavLink to="/" end className={({ isActive }) => 'nav-link' + (isActive ? ' active' : '')}>概览</NavLink>
-          <NavLink to="/portal/orders" className={({ isActive }) => 'nav-link' + (isActive ? ' active' : '')}>支付订单</NavLink>
-          <NavLink to="/portal/settings" className={({ isActive }) => 'nav-link' + (isActive ? ' active' : '')}>设置</NavLink>
-          <a href="/docs-site" target="_blank" className="nav-link" style={{ marginTop: 16, borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 16, borderRadius: 0 }}>API 文档 ↗</a>
-        </nav>
-        <div className="px-5 py-4 border-t flex items-center justify-between" style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
-          <code className="text-xs" style={{ color: 'rgba(255,255,255,0.3)' }}>{app.api_key_preview}</code>
-          <button onClick={logout} className="text-xs" style={{ color: 'rgba(255,255,255,0.3)', background: 'none', border: 'none', cursor: 'pointer' }}>退出</button>
+        <Menu
+          theme="dark" mode="inline" selectedKeys={[selectedKey]}
+          items={navItems}
+          onClick={({ key }) => navigate(key)}
+          style={{ background: 'transparent', borderInlineEnd: 'none', marginTop: 8 }}
+        />
+        <div style={{ padding: '12px 24px', borderTop: '1px solid rgba(255,255,255,0.06)', position: 'absolute', bottom: 0, width: '100%' }}>
+          <code style={{ color: 'rgba(255,255,255,0.3)', fontSize: 12, display: 'block', marginBottom: 8 }}>{app.api_key_preview}</code>
+          <Button type="text" icon={<LogoutOutlined />} onClick={logout} style={{ color: 'rgba(255,255,255,0.3)', fontSize: 12, padding: 0 }}>退出</Button>
         </div>
-      </aside>
-      <main className="flex-1 overflow-y-auto p-8">
+      </Sider>
+      <Content style={{ padding: 32, background: '#f5f5f5', overflow: 'auto' }}>
         <Routes>
           <Route path="/" element={<Dashboard app={app} />} />
           <Route path="/orders" element={<Orders />} />
           <Route path="/settings" element={<Settings app={app} onUpdate={setApp} />} />
         </Routes>
-      </main>
-    </div>
+      </Content>
+    </Layout>
   )
 }
 
@@ -73,7 +90,7 @@ export default function App() {
   return (
     <Routes>
       <Route path="/login" element={isLoggedIn() ? <Navigate to="/" /> : <LoginPage />} />
-      <Route path="/*" element={isLoggedIn() ? <PortalLayout /> : <Navigate to="/portal/login" />} />
+      <Route path="/*" element={isLoggedIn() ? <PortalLayout /> : <Navigate to="/login" />} />
     </Routes>
   )
 }

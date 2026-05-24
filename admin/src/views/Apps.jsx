@@ -1,143 +1,99 @@
 import { useState, useEffect } from 'react'
+import { Table, Button, Tag, Modal, Form, Input, Select, Space, message } from 'antd'
+import { PlusOutlined, CopyOutlined, EditOutlined } from '@ant-design/icons'
 import { api } from '../api/index.js'
 
 export default function Apps() {
   const [apps, setApps] = useState([])
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
-  const [copied, setCopied] = useState('')
-  const [showCreate, setShowCreate] = useState(false)
-  const [form, setForm] = useState({ name: '', alipay_pid: '', wechat_sub_mchid: '', wechat_sub_appid: '', webhook_url: '' })
+  const [openCreate, setOpenCreate] = useState(false)
   const [editing, setEditing] = useState(null)
+  const [form] = Form.useForm()
+  const [editForm] = Form.useForm()
 
   async function load() { setLoading(true); setApps(await api.listApps()); setLoading(false) }
   useEffect(() => { load() }, [])
 
-  async function create(e) {
-    e.preventDefault()
-    if (!form.name) { setError('应用名称不能为空'); return }
-    try { await api.createApp(form); setForm({ name: '', alipay_pid: '', wechat_sub_mchid: '', wechat_sub_appid: '', webhook_url: '' }); setShowCreate(false); setError(''); load() }
-    catch (err) { setError(err.message) }
+  async function handleCreate(values) {
+    await api.createApp(values)
+    setOpenCreate(false)
+    form.resetFields()
+    message.success('应用创建成功')
+    load()
   }
 
-  async function saveEdit(e) {
-    e.preventDefault()
-    await api.updateApp(editing.ID, editing)
-    setEditing(null); load()
+  async function handleEdit(values) {
+    await api.updateApp(editing.ID, values)
+    setEditing(null)
+    message.success('已保存')
+    load()
   }
 
   async function copy(text) {
-    try { await navigator.clipboard.writeText(text); setCopied(text); setTimeout(() => setCopied(''), 2000) } catch (e) { }
+    await navigator.clipboard.writeText(text)
+    message.success('已复制')
   }
+
+  const columns = [
+    { title: '名称', dataIndex: 'Name', width: 160 },
+    {
+      title: 'API Key', dataIndex: 'APIKey', width: 220,
+      render: v => (
+        <Space>
+          <code style={{ fontSize: 12 }}>{v?.slice(0, 16)}...</code>
+          <Button type="text" size="small" icon={<CopyOutlined />} onClick={() => copy(v)} />
+        </Space>
+      ),
+    },
+    { title: '支付宝 PID', dataIndex: 'AlipayPID', width: 120, render: v => v || '—' },
+    { title: '微信子商户号', dataIndex: 'WechatSubMchid', width: 130, render: v => v || '—' },
+    {
+      title: '状态', dataIndex: 'Status', width: 80,
+      render: v => <Tag color={v === 'active' ? 'green' : 'default'}>{v}</Tag>,
+    },
+    {
+      title: '操作', width: 80,
+      render: (_, record) => (
+        <Button type="link" size="small" icon={<EditOutlined />} onClick={() => { setEditing(record); editForm.setFieldsValue(record) }}>编辑</Button>
+      ),
+    },
+  ]
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-5">
-        <h2 className="text-lg font-bold" style={{ color: 'var(--color-text-primary)' }}>应用管理</h2>
-        <button className="btn btn-primary" onClick={() => setShowCreate(!showCreate)}>
-          {showCreate ? '取消' : '+ 创建应用'}
-        </button>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        <h2 style={{ margin: 0, fontSize: 18, fontWeight: 600 }}>应用管理</h2>
+        <Button type="primary" icon={<PlusOutlined />} onClick={() => setOpenCreate(true)}>创建应用</Button>
       </div>
 
-      {showCreate && (
-        <div className="card p-5 mb-5">
-          <h3 className="text-sm font-semibold mb-4">创建应用</h3>
-          <form onSubmit={create}>
-            <div className="grid grid-cols-4 gap-3 mb-4">
-              <div>
-                <label className="block text-xs font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>应用名称 *</label>
-                <input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="接入方名称" className="w-full" />
-              </div>
-              <div>
-                <label className="block text-xs font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>支付宝子商户 PID</label>
-                <input value={form.alipay_pid} onChange={e => setForm({ ...form, alipay_pid: e.target.value })} placeholder="2088..." className="w-full" />
-              </div>
-              <div>
-                <label className="block text-xs font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>微信子商户号</label>
-                <input value={form.wechat_sub_mchid} onChange={e => setForm({ ...form, wechat_sub_mchid: e.target.value })} placeholder="子商户 mchid" className="w-full" />
-              </div>
-              <div>
-                <label className="block text-xs font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>微信子商户 AppID</label>
-                <input value={form.wechat_sub_appid} onChange={e => setForm({ ...form, wechat_sub_appid: e.target.value })} placeholder="wx..." className="w-full" />
-              </div>
-              <div>
-                <label className="block text-xs font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>Webhook 回调地址</label>
-                <input value={form.webhook_url} onChange={e => setForm({ ...form, webhook_url: e.target.value })} placeholder="https://..." className="w-full" />
-              </div>
-            </div>
-            <div className="flex items-center gap-3">
-              <button type="submit" className="btn btn-primary">创建</button>
-              {error && <span className="text-xs" style={{ color: 'var(--color-danger)' }}>{error}</span>}
-            </div>
-          </form>
-        </div>
-      )}
+      <Table columns={columns} dataSource={apps} rowKey="ID" loading={loading} size="middle"
+        locale={{ emptyText: '暂无应用，点击右上角创建' }}
+      />
 
-      {editing && (
-        <div className="card p-5 mb-5">
-          <h3 className="text-sm font-semibold mb-4">编辑 · {editing.Name}</h3>
-          <form onSubmit={saveEdit}>
-            <div className="grid grid-cols-5 gap-3 mb-4">
-              <div>
-                <label className="block text-xs font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>名称</label>
-                <input value={editing.Name} onChange={e => setEditing({ ...editing, Name: e.target.value })} className="w-full" />
-              </div>
-              <div>
-                <label className="block text-xs font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>支付宝 PID</label>
-                <input value={editing.AlipayPID || ''} onChange={e => setEditing({ ...editing, AlipayPID: e.target.value })} className="w-full" />
-              </div>
-              <div>
-                <label className="block text-xs font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>微信子商户号</label>
-                <input value={editing.WechatSubMchid || ''} onChange={e => setEditing({ ...editing, WechatSubMchid: e.target.value })} className="w-full" />
-              </div>
-              <div>
-                <label className="block text-xs font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>微信子商户 AppID</label>
-                <input value={editing.WechatSubAppid || ''} onChange={e => setEditing({ ...editing, WechatSubAppid: e.target.value })} className="w-full" />
-              </div>
-              <div>
-                <label className="block text-xs font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>Webhook 回调地址</label>
-                <input value={editing.WebhookURL || ''} onChange={e => setEditing({ ...editing, WebhookURL: e.target.value })} className="w-full" placeholder="https://..." />
-              </div>
-              <div>
-                <label className="block text-xs font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>状态</label>
-                <select value={editing.Status} onChange={e => setEditing({ ...editing, Status: e.target.value })} className="w-full">
-                  <option value="active">active</option>
-                  <option value="disabled">disabled</option>
-                </select>
-              </div>
-            </div>
-            <div className="flex gap-2">
-              <button type="submit" className="btn btn-primary">保存</button>
-              <button type="button" className="btn btn-ghost" onClick={() => setEditing(null)}>取消</button>
-            </div>
-          </form>
-        </div>
-      )}
+      <Modal title="创建应用" open={openCreate} onCancel={() => setOpenCreate(false)} onOk={() => form.submit()} destroyOnClose>
+        <Form form={form} layout="vertical" onFinish={handleCreate}>
+          <Form.Item name="name" label="应用名称" rules={[{ required: true, message: '请输入应用名称' }]}>
+            <Input placeholder="接入方名称" />
+          </Form.Item>
+          <Form.Item name="alipay_pid" label="支付宝子商户 PID"><Input placeholder="2088..." /></Form.Item>
+          <Form.Item name="wechat_sub_mchid" label="微信子商户号"><Input placeholder="子商户 mchid" /></Form.Item>
+          <Form.Item name="wechat_sub_appid" label="微信子商户 AppID"><Input placeholder="wx..." /></Form.Item>
+          <Form.Item name="webhook_url" label="Webhook 回调地址"><Input placeholder="https://..." /></Form.Item>
+        </Form>
+      </Modal>
 
-      <div className="card">
-        <table>
-          <thead><tr><th>名称</th><th>API Key</th><th>支付宝 PID</th><th>微信子商户号</th><th>状态</th><th className="w-24">操作</th></tr></thead>
-          <tbody>
-            {loading && <tr><td colSpan="6" className="text-center py-10" style={{ color: 'var(--color-text-muted)' }}>加载中...</td></tr>}
-            {!loading && apps.length === 0 && <tr><td colSpan="6" className="text-center py-10" style={{ color: 'var(--color-text-muted)' }}>暂无应用，点击右上角创建</td></tr>}
-            {!loading && apps.map(a => (
-              <tr key={a.ID}>
-                <td className="font-medium">{a.Name}</td>
-                <td>
-                  <code className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>{a.APIKey.slice(0, 16)}...</code>
-                  <button className="btn btn-ghost btn-sm ml-1" onClick={() => copy(a.APIKey)} title="复制">
-                    {copied === a.APIKey ? '✓' : '⎘'}
-                  </button>
-                </td>
-                <td style={{ color: a.AlipayPID ? 'var(--color-text-primary)' : 'var(--color-text-muted)' }}>{a.AlipayPID || '—'}</td>
-                <td style={{ color: a.WechatSubMchid ? 'var(--color-text-primary)' : 'var(--color-text-muted)' }}>{a.WechatSubMchid || '—'}</td>
-                <td><span className={'badge ' + (a.Status === 'active' ? 'badge-success' : 'badge-neutral')}>{a.Status}</span></td>
-                <td><button className="btn btn-ghost btn-sm" onClick={() => setEditing({ ...a })}>编辑</button></td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <Modal title={`编辑 · ${editing?.Name || ''}`} open={!!editing} onCancel={() => setEditing(null)} onOk={() => editForm.submit()} destroyOnClose>
+        <Form form={editForm} layout="vertical" onFinish={handleEdit} initialValues={editing || {}}>
+          <Form.Item name="Name" label="名称"><Input /></Form.Item>
+          <Form.Item name="AlipayPID" label="支付宝 PID"><Input /></Form.Item>
+          <Form.Item name="WechatSubMchid" label="微信子商户号"><Input /></Form.Item>
+          <Form.Item name="WechatSubAppid" label="微信子商户 AppID"><Input /></Form.Item>
+          <Form.Item name="WebhookURL" label="Webhook 回调地址"><Input /></Form.Item>
+          <Form.Item name="Status" label="状态">
+            <Select options={[{ value: 'active', label: 'active' }, { value: 'disabled', label: 'disabled' }]} />
+          </Form.Item>
+        </Form>
+      </Modal>
     </div>
   )
 }

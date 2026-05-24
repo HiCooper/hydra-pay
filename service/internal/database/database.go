@@ -28,6 +28,18 @@ func Connect(cfg *config.Config) (*gorm.DB, error) {
 	if err := db.AutoMigrate(&model.PaymentEvent{}); err != nil {
 		return nil, err
 	}
+	if err := db.AutoMigrate(&model.AlipayCallback{}); err != nil {
+		return nil, err
+	}
+	if err := db.AutoMigrate(&model.WeChatCallback{}); err != nil {
+		return nil, err
+	}
+	if err := db.AutoMigrate(&model.Refund{}); err != nil {
+		return nil, err
+	}
+	if err := db.AutoMigrate(&model.ScheduledTask{}); err != nil {
+		return nil, err
+	}
 
 	log.Println("[db] connected and migrated")
 	return db, nil

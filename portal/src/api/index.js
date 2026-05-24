@@ -1,4 +1,5 @@
-const BASE = '/portal/api'
+const SERVER = import.meta.env.VITE_SERVER_BASE || 'http://localhost:8082'
+const BASE = SERVER + '/portal/api'
 
 function headers() {
   return {

@@ -28,6 +28,15 @@ func (r *PaymentRepository) GetByID(id uuid.UUID) (*model.Payment, error) {
 	return &payment, nil
 }
 
+func (r *PaymentRepository) GetByTradeNo(tradeNo string) (*model.Payment, error) {
+	var payment model.Payment
+	err := r.db.Where("trade_no = ?", tradeNo).First(&payment).Error
+	if err != nil {
+		return nil, err
+	}
+	return &payment, nil
+}
+
 func (r *PaymentRepository) ListByApp(appID uuid.UUID, page, pageSize int) ([]model.Payment, int64, error) {
 	var payments []model.Payment
 	var total int64

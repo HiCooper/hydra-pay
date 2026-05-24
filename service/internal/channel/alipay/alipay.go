@@ -100,7 +100,7 @@ func (a *Adapter) createQRCodePayment(ctx context.Context, req *channel.CreatePa
 	log.Printf("[alipay] precreate success: out_trade_no=%s, qr_code=%s", req.PaymentID, resp.QRCode)
 
 	return &channel.CreatePaymentResponse{
-		ChannelTxID: req.PaymentID,
+		ChannelTxID: "",
 		QRCodeURL:   resp.QRCode,
 		RawResponse: structToMap(resp),
 	}, nil
@@ -128,7 +128,7 @@ func (a *Adapter) createAppPayment(ctx context.Context, req *channel.CreatePayme
 	log.Printf("[alipay] app pay success: out_trade_no=%s", req.PaymentID)
 
 	return &channel.CreatePaymentResponse{
-		ChannelTxID: req.PaymentID,
+		ChannelTxID: "",
 		PaymentURL:  orderStr,
 		RawResponse: map[string]interface{}{"order_string": orderStr},
 	}, nil
@@ -158,7 +158,7 @@ func (a *Adapter) createH5Payment(ctx context.Context, req *channel.CreatePaymen
 	log.Printf("[alipay] wap pay success: out_trade_no=%s", req.PaymentID)
 
 	return &channel.CreatePaymentResponse{
-		ChannelTxID: req.PaymentID,
+		ChannelTxID: "",
 		PaymentURL:  paymentURL.String(),
 		RawResponse: map[string]interface{}{"payment_url": paymentURL.String()},
 	}, nil
@@ -216,13 +216,47 @@ func (a *Adapter) VerifyCallback(ctx context.Context, data *channel.CallbackData
 	amountYuan, _ := strconv.ParseFloat(totalAmount, 64)
 	amountCents := int64(amountYuan * 100)
 
+	// Build full callback record with all Alipay parameters
+	cb := &model.AlipayCallback{
+		NotifyID:        notifyID,
+		NotifyType:      values.Get("notify_type"),
+		NotifyTime:      values.Get("notify_time"),
+		SignType:        values.Get("sign_type"),
+		TradeNo:         tradeNo,
+		OutTradeNo:      outTradeNo,
+		TradeStatus:     tradeStatus,
+		Subject:         values.Get("subject"),
+		TotalAmount:     totalAmount,
+		ReceiptAmount:   values.Get("receipt_amount"),
+		BuyerPayAmount:  values.Get("buyer_pay_amount"),
+		PointAmount:     values.Get("point_amount"),
+		InvoiceAmount:   values.Get("invoice_amount"),
+		BuyerID:         values.Get("buyer_id"),
+		BuyerLogonID:    values.Get("buyer_logon_id"),
+		GmtCreate:       values.Get("gmt_create"),
+		GmtPayment:      values.Get("gmt_payment"),
+		GmtClose:        values.Get("gmt_close"),
+		PassbackParams:  values.Get("passback_params"),
+		FundBillList:    parseJSONField(values.Get("fund_bill_list")),
+		VoucherDetailList: parseJSONField(values.Get("voucher_detail_list")),
+		RawBody:         string(data.RawBody),
+	}
+
 	return &channel.CallbackResult{
-		ChannelTxID: tradeNo,
-		PaymentID:   outTradeNo,
-		Status:      status,
-		Amount:      amountCents,
-		Currency:    "CNY",
+		ChannelTxID:    tradeNo,
+		PaymentID:      outTradeNo,
+		Status:         status,
+		Amount:         amountCents,
+		Currency:       "CNY",
+		AlipayCallback: cb,
 	}, nil
+}
+
+func parseJSONField(s string) []byte {
+	if s == "" {
+		return nil
+	}
+	return []byte(s)
 }
 
 func mapAlipayTradeStatus(status string) string {

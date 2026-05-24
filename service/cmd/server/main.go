@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -9,9 +10,15 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/hydra/pay-service/internal/channel"
+	"github.com/hydra/pay-service/internal/channel/alipay"
+	"github.com/hydra/pay-service/internal/channel/wechat"
 	"github.com/hydra/pay-service/internal/config"
 	"github.com/hydra/pay-service/internal/database"
+	"github.com/hydra/pay-service/internal/model"
 	"github.com/hydra/pay-service/internal/router"
+	"github.com/hydra/pay-service/internal/service"
+	"gorm.io/gorm"
 )
 
 func main() {
@@ -36,6 +43,9 @@ func main() {
 		}
 	}()
 
+	go runOrderSync(db, cfg)
+	go runTaskCleanup(db)
+
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
@@ -49,4 +59,32 @@ func main() {
 	}
 
 	log.Println("[hydra-pay] server exited")
+}
+
+func runOrderSync(db *gorm.DB, cfg *config.Config) {
+	getAdapter := func(ch string) (channel.Adapter, error) {
+		switch ch {
+		case model.ChannelAlipay:
+			return alipay.NewAdapter(&cfg.Alipay)
+		case model.ChannelWechat:
+			return wechat.NewAdapter(&cfg.Wechat)
+		default:
+			return nil, fmt.Errorf("unsupported channel: %s", ch)
+		}
+	}
+
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		service.SyncExpiredOrders(db, getAdapter)
+	}
+}
+
+func runTaskCleanup(db *gorm.DB) {
+	ticker := time.NewTicker(24 * time.Hour)
+	defer ticker.Stop()
+	for range ticker.C {
+		db.Exec("DELETE FROM scheduled_tasks WHERE status IN ('done','cancelled') AND created_at < NOW() - INTERVAL '7 days'")
+	}
 }

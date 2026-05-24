@@ -1,82 +1,158 @@
 import { useState, useEffect } from 'react'
-import { useParams, Link } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
+import { Descriptions, Tag, Table, Button, Result, Statistic } from 'antd'
+import { ArrowLeftOutlined } from '@ant-design/icons'
 import { api } from '../api/index.js'
 
-const badgeMap = { paid: 'badge-success', processing: 'badge-info', pending: 'badge-warning', failed: 'badge-danger' }
+const statusLabel = { pending: '待支付', processing: '支付中', paid: '支付成功', failed: '支付失败', cancelled: '已取消', refunded: '已退款' }
+const statusColor = { pending: 'orange', processing: 'blue', paid: 'green', failed: 'red', cancelled: 'default', refunded: 'default' }
+const chLabel = { alipay: '支付宝', wechat: '微信支付' }
+const eventTypeLabel = { created: '创建', channel_request: '渠道请求', callback_received: '回调到达', status_changed: '状态变更', webhook_sent: 'Webhook', refund: '退款' }
+function fmtResult(v) { if (!v) return ''; return typeof v === 'string' ? v : JSON.stringify(v) }
 
 export default function OrderDetail() {
-  const { id } = useParams()
+  const [searchParams] = useSearchParams()
+  const id = searchParams.get('id')
+  const navigate = useNavigate()
   const [order, setOrder] = useState(null)
   const [events, setEvents] = useState([])
+  const [alipayCbs, setAlipayCbs] = useState([])
+  const [wechatCbs, setWechatCbs] = useState([])
+  const [refunds, setRefunds] = useState([])
   const [appName, setAppName] = useState('')
+  const [error, setError] = useState('')
 
   useEffect(() => {
-    api.getOrder(id).then(d => { setOrder(d.payment); setEvents(d.events || []); setAppName(d.app_name || '-') })
+    if (!id) { setError('缺少订单 ID'); return }
+    api.getOrder(id)
+      .then(d => {
+        setOrder(d.payment); setEvents(d.events || [])
+        setAlipayCbs(d.alipay_callbacks || []); setWechatCbs(d.wechat_callbacks || [])
+	        setRefunds(d.refunds || [])
+        setAppName(d.app_name || '-')
+      })
+      .catch(err => setError(err.message))
   }, [id])
 
-  if (!order) return <div className="flex items-center justify-center h-64" style={{ color: 'var(--color-text-muted)' }}>加载中...</div>
+  if (error) return (
+    <Result
+      status="error" title="加载失败" subTitle={error}
+      extra={<Button onClick={() => navigate('/orders')}>返回订单列表</Button>}
+    />
+  )
 
-  const fields = [
-    ['订单 ID', <code key="id" className="text-xs">{order.ID}</code>],
-    ['应用', appName],
-    ['渠道', order.Channel === 'alipay' ? '支付宝' : order.Channel === 'wechat' ? '微信支付' : order.Channel],
-    ['金额', <span key="amt" className="font-mono font-medium">¥{(order.Amount / 100).toFixed(2)} <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>{order.Currency}</span></span>],
-    ['状态', <span key="st" className={'badge ' + (badgeMap[order.Status] || 'badge-neutral')}>{order.Status}</span>],
-    ['外部交易号', <code key="ext" className="text-xs">{order.ExternalID || '—'}</code>],
-    ['描述', order.Description || '—'],
-    ['创建时间', new Date(order.CreatedAt).toLocaleString('zh-CN')],
-    ['支付时间', order.PaidAt ? new Date(order.PaidAt).toLocaleString('zh-CN') : '—'],
+  if (!order) return <div style={{ textAlign: 'center', padding: 80, color: '#94a3b8' }}>加载中...</div>
+
+  const deadline = new Date(order.CreatedAt).getTime() + 15 * 60 * 1000
+
+  const items = [
+    { key: 'trade_no', label: '订单 ID', children: <code>{order.TradeNo}</code> },
+    { key: 'app', label: '应用', children: appName },
+    { key: 'channel', label: '渠道', children: chLabel[order.Channel] || order.Channel },
+    { key: 'amount', label: '金额', children: <span style={{ fontFamily: 'monospace' }}>¥{(order.Amount / 100).toFixed(2)} <span style={{ color: '#94a3b8', fontSize: 12 }}>{order.Currency}</span></span> },
+    { key: 'status', label: '状态', children: <Tag color={statusColor[order.Status] || 'default'}>{statusLabel[order.Status] || order.Status}({order.Status})</Tag> },
+    ...(order.Status === 'processing' ? [{ key: 'countdown', label: '支付倒计时', children:
+      <Statistic.Countdown
+        value={deadline}
+        valueStyle={{ fontSize: 14, color: deadline < Date.now() ? '#ef4444' : '#f59e0b' }}
+        format="mm:ss"
+        onFinish={() => {}} />
+    }] : []),
+    { key: 'external_id', label: '渠道交易号', children: order.ExternalID ? <code>{order.ExternalID}</code> : '—' },
+    { key: 'description', label: '描述', children: order.Description || '—' },
+    { key: 'created', label: '创建时间', children: new Date(order.CreatedAt).toLocaleString('zh-CN') },
+    { key: 'paid', label: '支付时间', children: order.PaidAt ? new Date(order.PaidAt).toLocaleString('zh-CN') : '—' },
   ]
 
-  const eventTypeLabel = { created: '创建', channel_request: '渠道请求', callback_received: '回调到达', status_changed: '状态变更', webhook_sent: 'Webhook' }
+  const eventColumns = [
+    { title: '时间', dataIndex: 'CreatedAt', width: 170, render: v => new Date(v).toLocaleString('zh-CN') },
+    { title: '事件', dataIndex: 'Type', width: 100, render: v => <Tag color="blue">{eventTypeLabel[v] || v}</Tag> },
+    { title: '渠道', dataIndex: 'Channel', width: 80 },
+    { title: '详情', dataIndex: 'Error', render: (err, record) => {
+      if (err) return <span style={{ color: '#ef4444' }}>{err}</span>
+      const text = fmtResult(record.Result)
+      return text ? <code style={{ fontSize: 12 }} title={text}>{text.slice(0, 80)}</code>
+        : <span style={{ color: '#94a3b8' }}>—</span>
+    }},
+  ]
 
   return (
     <div>
-      <Link to="/orders" className="inline-flex items-center gap-1 text-xs font-medium mb-4" style={{ color: 'var(--color-accent)' }}>
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+      <Button type="link" icon={<ArrowLeftOutlined />} onClick={() => navigate('/orders')} style={{ padding: 0, marginBottom: 16 }}>
         返回订单列表
-      </Link>
+      </Button>
 
-      <div className="card mb-5">
-        <div className="px-5 py-4 border-b" style={{ borderColor: 'var(--color-border)' }}>
-          <h3 className="text-sm font-semibold">订单详情</h3>
-        </div>
-        <div className="p-5">
-          <div className="grid grid-cols-3 gap-y-3 gap-x-8">
-            {fields.map(([label, value], i) => (
-              <div key={i} className="flex flex-col gap-0.5">
-                <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>{label}</span>
-                <span className="text-sm">{value}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
+      <Descriptions title="订单详情" bordered column={3} size="small" items={items} style={{ marginBottom: 24, background: '#fff' }} />
 
       {events.length > 0 && (
-        <div className="card">
-          <div className="px-5 py-4 border-b" style={{ borderColor: 'var(--color-border)' }}>
-            <h3 className="text-sm font-semibold">事件时间线</h3>
-          </div>
-          <table>
-            <thead><tr><th>时间</th><th>事件</th><th>渠道</th><th>详情</th></tr></thead>
-            <tbody>
-              {events.map(e => (
-                <tr key={e.ID}>
-                  <td className="text-xs whitespace-nowrap" style={{ color: 'var(--color-text-secondary)' }}>{new Date(e.CreatedAt).toLocaleString('zh-CN')}</td>
-                  <td><span className="badge badge-info">{eventTypeLabel[e.Type] || e.Type}</span></td>
-                  <td className="text-xs">{e.Channel}</td>
-                  <td className="text-xs" style={{ maxWidth: 300 }}>
-                    {e.Error ? <span style={{ color: 'var(--color-danger)' }}>{e.Error}</span>
-                      : e.Result ? <code className="text-xs block truncate" title={e.Result}>{e.Result.slice(0, 80)}</code>
-                        : <span style={{ color: 'var(--color-text-muted)' }}>—</span>}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div style={{ marginBottom: 24 }}>
+          <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 12 }}>事件时间线</h3>
+          <Table columns={eventColumns} dataSource={events} rowKey="ID" size="small" pagination={false} />
         </div>
       )}
+
+      {alipayCbs.length > 0 && alipayCbs.map(cb => (
+        <div key={cb.ID} style={{ marginBottom: 24 }}>
+          <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 12 }}>支付宝回调 · {cb.NotifyID}</h3>
+          <Descriptions bordered column={3} size="small">
+            <Descriptions.Item label="通知 ID">{cb.NotifyID}</Descriptions.Item>
+            <Descriptions.Item label="通知类型">{cb.NotifyType}</Descriptions.Item>
+            <Descriptions.Item label="通知时间">{cb.NotifyTime}</Descriptions.Item>
+            <Descriptions.Item label="支付宝交易号"><code>{cb.TradeNo}</code></Descriptions.Item>
+            <Descriptions.Item label="交易状态"><Tag color="blue">{cb.TradeStatus}</Tag></Descriptions.Item>
+            <Descriptions.Item label="订单金额">¥{cb.TotalAmount}</Descriptions.Item>
+            <Descriptions.Item label="实收金额">¥{cb.ReceiptAmount || '—'}</Descriptions.Item>
+            <Descriptions.Item label="买家付款金额">¥{cb.BuyerPayAmount || '—'}</Descriptions.Item>
+            <Descriptions.Item label="买家 ID">{cb.BuyerID || '—'}</Descriptions.Item>
+            <Descriptions.Item label="买家账号">{cb.BuyerLogonID || '—'}</Descriptions.Item>
+            <Descriptions.Item label="交易创建时间">{cb.GmtCreate || '—'}</Descriptions.Item>
+            <Descriptions.Item label="交易付款时间">{cb.GmtPayment || '—'}</Descriptions.Item>
+            <Descriptions.Item label="商品标题">{cb.Subject || '—'}</Descriptions.Item>
+            <Descriptions.Item label="集分宝金额">{cb.PointAmount || '—'}</Descriptions.Item>
+            <Descriptions.Item label="回传参数">{cb.PassbackParams || '—'}</Descriptions.Item>
+          </Descriptions>
+        </div>
+      ))}
+
+      {wechatCbs.length > 0 && wechatCbs.map(cb => (
+        <div key={cb.ID} style={{ marginBottom: 24 }}>
+          <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 12 }}>微信回调 · {cb.NotificationID}</h3>
+          <Descriptions bordered column={3} size="small">
+            <Descriptions.Item label="通知 ID">{cb.NotificationID}</Descriptions.Item>
+            <Descriptions.Item label="事件类型">{cb.EventType}</Descriptions.Item>
+            <Descriptions.Item label="微信交易号"><code>{cb.TransactionID}</code></Descriptions.Item>
+            <Descriptions.Item label="交易状态"><Tag color="blue">{cb.TradeState}</Tag></Descriptions.Item>
+            <Descriptions.Item label="状态描述">{cb.TradeStateDesc || '—'}</Descriptions.Item>
+            <Descriptions.Item label="交易类型">{cb.TradeType || '—'}</Descriptions.Item>
+            <Descriptions.Item label="金额">¥{(cb.AmountTotal / 100).toFixed(2)}</Descriptions.Item>
+            <Descriptions.Item label="用户支付金额">¥{(cb.AmountPayerTotal / 100).toFixed(2)}</Descriptions.Item>
+            <Descriptions.Item label="币种">{cb.AmountCurrency}</Descriptions.Item>
+            <Descriptions.Item label="付款银行">{cb.BankType || '—'}</Descriptions.Item>
+            <Descriptions.Item label="支付成功时间">{cb.SuccessTime || '—'}</Descriptions.Item>
+            <Descriptions.Item label="用户 OpenID">{cb.PayerOpenid || '—'}</Descriptions.Item>
+            {cb.SubMchid && <Descriptions.Item label="子商户号">{cb.SubMchid}</Descriptions.Item>}
+            {cb.SpMchid && <Descriptions.Item label="服务商号">{cb.SpMchid}</Descriptions.Item>}
+            {cb.SpAppid && <Descriptions.Item label="服务商 AppID">{cb.SpAppid}</Descriptions.Item>}
+            {cb.SubAppid && <Descriptions.Item label="子商户 AppID">{cb.SubAppid}</Descriptions.Item>}
+            {cb.Attach && <Descriptions.Item label="附加数据">{cb.Attach}</Descriptions.Item>}
+          </Descriptions>
+        </div>
+      ))}
+
+      {refunds.length > 0 && refunds.map(r => (
+        <div key={r.ID} style={{ marginBottom: 24 }}>
+          <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 12 }}>退款记录 · {r.OutRequestNo}</h3>
+          <Descriptions bordered column={3} size="small">
+            <Descriptions.Item label="渠道">{r.Channel === 'alipay' ? '支付宝' : '微信'}</Descriptions.Item>
+            <Descriptions.Item label="退款金额">¥{r.RefundFee || r.RefundAmount}</Descriptions.Item>
+            <Descriptions.Item label="状态"><Tag color={r.Status === 'success' ? 'green' : 'red'}>{r.Status}</Tag></Descriptions.Item>
+            <Descriptions.Item label="请求号"><code>{r.OutRequestNo}</code></Descriptions.Item>
+            <Descriptions.Item label="渠道退款号"><code>{r.ChannelRefundID || '—'}</code></Descriptions.Item>
+            <Descriptions.Item label="原因">{r.RefundReason || '—'}</Descriptions.Item>
+            <Descriptions.Item label="时间">{new Date(r.CreatedAt).toLocaleString('zh-CN')}</Descriptions.Item>
+          </Descriptions>
+        </div>
+      ))}
     </div>
   )
 }

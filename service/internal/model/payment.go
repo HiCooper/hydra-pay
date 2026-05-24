@@ -24,6 +24,7 @@ const (
 // Payment represents a payment order.
 type Payment struct {
 	ID          uuid.UUID      `gorm:"type:uuid;default:gen_random_uuid();primaryKey"`
+	TradeNo     string         `gorm:"type:varchar(32);not null;uniqueIndex"`
 	AppID       uuid.UUID      `gorm:"type:uuid;not null;index"`
 	UserID      string         `gorm:"type:varchar(255);not null"`
 	PlanID      string         `gorm:"type:varchar(255)"`

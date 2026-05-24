@@ -18,8 +18,9 @@ func Setup(cfg *config.Config, db *gorm.DB) *gin.Engine {
 	gin.SetMode(cfg.Server.Mode)
 	r := gin.New()
 
-	r.Use(gin.Recovery())
-	r.Use(gin.Logger())
+	r.Use(middleware.StructuredRecovery())
+	r.Use(middleware.StructuredLogger())
+	r.Use(middleware.CORS(cfg.Server.CORSOrigins))
 
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{"status": "ok"})
@@ -42,7 +43,7 @@ func Setup(cfg *config.Config, db *gorm.DB) *gin.Engine {
 
 	// Admin API
 	adminHandler := admin.NewHandler(db)
-	admAPI := r.Group("/api/admin")
+	admAPI := r.Group(cfg.Server.AdminAPIPath)
 	admAPI.Use(admin.AdminAuth())
 	{
 		admAPI.GET("/dashboard", adminHandler.Dashboard)
@@ -61,6 +62,7 @@ func Setup(cfg *config.Config, db *gorm.DB) *gin.Engine {
 
 		admAPI.POST("/tools/simulate-callback", adminHandler.SimulateCallback)
 		admAPI.POST("/tools/test-webhook", adminHandler.TestWebhook)
+		admAPI.POST("/tools/test-refund", adminHandler.TestRefund)
 		admAPI.GET("/tools/connectivity", adminHandler.ConnectivityCheck)
 	}
 

@@ -1,15 +1,23 @@
 package admin
 
 import (
+	"context"
 	"encoding/json"
+	"log"
 	"fmt"
 	"strings"
 	"net/http"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/smartwalle/alipay/v3"
+	"github.com/wechatpay-apiv3/wechatpay-go/core"
+	"github.com/wechatpay-apiv3/wechatpay-go/core/option"
+	"github.com/wechatpay-apiv3/wechatpay-go/services/refunddomestic"
+	"github.com/wechatpay-apiv3/wechatpay-go/utils"
 	"gorm.io/gorm"
 
 	"github.com/hydra/pay-service/internal/model"
@@ -148,13 +156,34 @@ func (h *Handler) ListOrders(c *gin.Context) {
 	if status := c.Query("status"); status != "" {
 		query = query.Where("status = ?", status)
 	}
+	if tradeNo := c.Query("trade_no"); tradeNo != "" {
+		query = query.Where("trade_no LIKE ?", "%"+tradeNo+"%")
+	}
+
+	page := 1
+	pageSize := 10
+	if p := c.Query("page"); p != "" {
+		fmt.Sscanf(p, "%d", &page)
+	}
+	if ps := c.Query("page_size"); ps != "" {
+		fmt.Sscanf(ps, "%d", &pageSize)
+	}
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 || pageSize > 100 {
+		pageSize = 10
+	}
 
 	query.Count(&total)
-	query.Order("created_at DESC").Limit(50).Find(&payments)
+	offset := (page - 1) * pageSize
+	query.Order("created_at DESC").Offset(offset).Limit(pageSize).Find(&payments)
 
 	response.Success(c, gin.H{
-		"orders": payments,
-		"total":  total,
+		"orders":    payments,
+		"total":     total,
+		"page":      page,
+		"page_size": pageSize,
 	})
 }
 
@@ -182,7 +211,7 @@ func (h *Handler) ExportOrders(c *gin.Context) {
 		if p.PaidAt != nil {
 			paidAt = p.PaidAt.Format("2006-01-02 15:04:05")
 		}
-		c.Writer.WriteString(csvEscape(p.ID.String()) + "," +
+		c.Writer.WriteString(csvEscape(p.TradeNo) + "," +
 			p.Channel + "," +
 			fmt.Sprintf("%.2f", float64(p.Amount)/100) + "," +
 			p.Currency + "," +
@@ -216,6 +245,15 @@ func (h *Handler) GetOrder(c *gin.Context) {
 
 	events, _ := h.eventRepo.ListByPayment(id)
 
+	var alipayCbs []model.AlipayCallback
+	h.db.Where("payment_id = ?", id).Order("created_at DESC").Find(&alipayCbs)
+
+	var wechatCbs []model.WeChatCallback
+	h.db.Where("payment_id = ?", id).Order("created_at DESC").Find(&wechatCbs)
+
+	var refunds []model.Refund
+	h.db.Where("payment_id = ?", id).Order("created_at DESC").Find(&refunds)
+
 	var appName string
 	var app model.App
 	if err := h.db.First(&app, "id = ?", payment.AppID).Error; err == nil {
@@ -223,9 +261,12 @@ func (h *Handler) GetOrder(c *gin.Context) {
 	}
 
 	response.Success(c, gin.H{
-		"payment":  payment,
-		"app_name": appName,
-		"events":   events,
+		"payment":         payment,
+		"app_name":        appName,
+		"events":          events,
+		"refunds":          refunds,
+		"alipay_callbacks": alipayCbs,
+		"wechat_callbacks": wechatCbs,
 	})
 }
 
@@ -328,13 +369,13 @@ func (h *Handler) SimulateCallback(c *gin.Context) {
 		req.Status = model.PaymentStatusPaid
 	}
 
+	var payment *model.Payment
 	pid, err := uuid.Parse(req.PaymentID)
-	if err != nil {
-		response.Error(c, http.StatusBadRequest, "INVALID_ID", "invalid payment id")
-		return
+	if err == nil {
+		payment, err = h.paymentRepo.GetByID(pid)
+	} else {
+		payment, err = h.paymentRepo.GetByTradeNo(req.PaymentID)
 	}
-
-	payment, err := h.paymentRepo.GetByID(pid)
 	if err != nil {
 		response.Error(c, http.StatusNotFound, "NOT_FOUND", "payment not found")
 		return
@@ -345,7 +386,7 @@ func (h *Handler) SimulateCallback(c *gin.Context) {
 		return
 	}
 
-	applied, _ := h.paymentRepo.MarkPaidIfPending(pid, "simulated_tx_"+req.PaymentID[:8])
+	applied, _ := h.paymentRepo.MarkPaidIfPending(payment.ID, "simulated_tx_"+req.PaymentID[:8])
 	if !applied {
 		response.Error(c, http.StatusConflict, "CONFLICT", "payment already in terminal state")
 		return
@@ -353,11 +394,11 @@ func (h *Handler) SimulateCallback(c *gin.Context) {
 
 	payment.Status = model.PaymentStatusPaid
 	repository.RecordEvent(h.db, model.EventCallbackReceived, payment.Channel,
-		pid, "simulated callback",
+		payment.ID, "simulated callback",
 		map[string]interface{}{"status": req.Status, "simulated": true}, "")
 
 	repository.RecordEvent(h.db, model.EventStatusChanged, payment.Channel,
-		pid, "",
+		payment.ID, "",
 		map[string]interface{}{"from": "processing", "to": "paid"}, "")
 
 	response.Success(c, gin.H{"message": "callback simulated", "payment": payment})
@@ -460,6 +501,216 @@ func (h *Handler) ConnectivityCheck(c *gin.Context) {
 	results = append(results, r3)
 
 	response.Success(c, gin.H{"results": results})
+}
+
+func (h *Handler) TestRefund(c *gin.Context) {
+	var req struct {
+		TradeNo      string `json:"trade_no"`
+		RefundAmount string `json:"refund_amount"`
+		RefundReason string `json:"refund_reason"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, http.StatusBadRequest, "INVALID_BODY", err.Error())
+		return
+	}
+	if req.TradeNo == "" || req.RefundAmount == "" {
+		response.Error(c, http.StatusBadRequest, "INVALID_BODY", "trade_no and refund_amount are required")
+		return
+	}
+
+	payment, err := h.paymentRepo.GetByTradeNo(req.TradeNo)
+	if err != nil {
+		response.Error(c, http.StatusNotFound, "NOT_FOUND", "payment not found")
+		return
+	}
+	if payment.Status != model.PaymentStatusPaid {
+		response.Error(c, http.StatusBadRequest, "NOT_PAID", "only paid orders can be refunded")
+		return
+	}
+
+	outReqNo := "RF" + payment.TradeNo
+	ctx := c.Request.Context()
+
+	switch payment.Channel {
+	case model.ChannelAlipay:
+		alipayRefund(c, payment, req.RefundAmount, req.RefundReason, outReqNo, ctx, h)
+	case model.ChannelWechat:
+		wechatRefund(c, payment, req.RefundAmount, req.RefundReason, outReqNo, ctx, h)
+	default:
+		response.Error(c, http.StatusBadRequest, "UNSUPPORTED", "unsupported channel: "+payment.Channel)
+	}
+}
+
+func alipayRefund(c *gin.Context, payment *model.Payment, amount, reason, outReqNo string, ctx context.Context, h *Handler) {
+	appID := os.Getenv("ALIPAY_APP_ID")
+	privateKey := resolveAdminKey()
+	if appID == "" || privateKey == "" {
+		response.Error(c, http.StatusInternalServerError, "CONFIG_ERROR", "alipay not configured")
+		return
+	}
+
+	isSandbox := os.Getenv("ALIPAY_SANDBOX") == "true"
+	client, err := alipay.New(appID, privateKey, !isSandbox)
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "CLIENT_ERROR", "failed to create alipay client: "+err.Error())
+		return
+	}
+
+	pubKey := os.Getenv("ALIPAY_ALIPAY_PUBLIC_KEY")
+	if pubKey != "" {
+		if err := client.LoadAliPayPublicKey(pubKey); err != nil {
+			response.Error(c, http.StatusInternalServerError, "CLIENT_ERROR", "failed to load alipay public key: "+err.Error())
+			return
+		}
+	}
+
+	p := alipay.TradeRefund{
+		OutTradeNo:   payment.TradeNo,
+		RefundAmount: amount,
+		OutRequestNo: outReqNo,
+	}
+	if reason != "" {
+		p.RefundReason = reason
+	}
+
+	resp, err := client.TradeRefund(ctx, p)
+	if err != nil {
+		response.Error(c, http.StatusBadGateway, "REFUND_FAILED", err.Error())
+		return
+	}
+	if resp.Code != alipay.CodeSuccess {
+		response.Error(c, http.StatusBadGateway, "REFUND_FAILED",
+			fmt.Sprintf("%s (code=%s)", resp.Msg, resp.Code))
+		return
+	}
+
+	if err := h.paymentRepo.UpdateStatus(payment.ID, model.PaymentStatusRefunded, payment.ExternalID); err != nil {
+		log.Printf("[refund] update status failed: %v", err)
+	}
+
+	respJSON, _ := json.Marshal(resp)
+	h.db.Create(&model.Refund{
+		PaymentID:       payment.ID,
+		TradeNo:         payment.TradeNo,
+		Channel:         model.ChannelAlipay,
+		RefundAmount:    amount,
+		RefundReason:    reason,
+		OutRequestNo:    outReqNo,
+		Status:          model.RefundStatusSuccess,
+		ChannelRefundID: resp.TradeNo,
+		ChannelTxID:     resp.TradeNo,
+		RefundFee:       resp.RefundFee,
+		ResponseData:    respJSON,
+	})
+	repository.RecordEvent(h.db, model.EventRefund, model.ChannelAlipay,
+		payment.ID, string(respJSON),
+		map[string]interface{}{"refund_fee": resp.RefundFee, "trade_no": resp.TradeNo}, "")
+
+	response.Success(c, gin.H{
+		"message":     "refund success",
+		"channel":     "alipay",
+		"trade_no":    resp.TradeNo,
+		"refund_fee":  resp.RefundFee,
+		"fund_change": resp.FundChange,
+	})
+}
+
+func wechatRefund(c *gin.Context, payment *model.Payment, amount, reason, outReqNo string, ctx context.Context, h *Handler) {
+	mchID := os.Getenv("WECHAT_MCH_ID")
+	serialNo := os.Getenv("WECHAT_SERIAL_NO")
+	apiV3Key := os.Getenv("WECHAT_API_V3_KEY")
+	privateKey := resolveWechatAdminKey()
+	if mchID == "" || apiV3Key == "" || serialNo == "" || privateKey == "" {
+		response.Error(c, http.StatusInternalServerError, "CONFIG_ERROR", "wechat not configured")
+		return
+	}
+
+	priv, err := utils.LoadPrivateKey(privateKey)
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "CLIENT_ERROR", "failed to load wechat private key: "+err.Error())
+		return
+	}
+
+	client, err := core.NewClient(ctx,
+		option.WithWechatPayAutoAuthCipher(mchID, serialNo, priv, apiV3Key),
+	)
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "CLIENT_ERROR", "failed to create wechat client: "+err.Error())
+		return
+	}
+
+	// amount is in yuan string, wechat needs cents
+	amountF, _ := strconv.ParseFloat(amount, 64)
+	amountCents := int64(amountF * 100)
+
+	svc := refunddomestic.RefundsApiService{Client: client}
+	req := refunddomestic.CreateRequest{
+		OutTradeNo:  core.String(payment.TradeNo),
+		OutRefundNo: core.String(outReqNo),
+		Amount:      &refunddomestic.AmountReq{Refund: core.Int64(amountCents), Total: core.Int64(payment.Amount), Currency: core.String("CNY")},
+	}
+	if reason != "" {
+		req.Reason = core.String(reason)
+	}
+
+	resp, _, err := svc.Create(ctx, req)
+	if err != nil {
+		response.Error(c, http.StatusBadGateway, "REFUND_FAILED", err.Error())
+		return
+	}
+
+	if err := h.paymentRepo.UpdateStatus(payment.ID, model.PaymentStatusRefunded, payment.ExternalID); err != nil {
+		log.Printf("[refund] update status failed: %v", err)
+	}
+
+	respJSON, _ := json.Marshal(resp)
+	h.db.Create(&model.Refund{
+		PaymentID:       payment.ID,
+		TradeNo:         payment.TradeNo,
+		Channel:         model.ChannelWechat,
+		RefundAmount:    amount,
+		RefundReason:    reason,
+		OutRequestNo:    outReqNo,
+		Status:          model.RefundStatusSuccess,
+		ChannelRefundID: *resp.RefundId,
+		ChannelTxID:     *resp.TransactionId,
+		RefundFee:       fmt.Sprintf("%.2f", float64(amountCents)/100),
+		ResponseData:    respJSON,
+	})
+	repository.RecordEvent(h.db, model.EventRefund, model.ChannelWechat,
+		payment.ID, string(respJSON),
+		map[string]interface{}{"refund_id": *resp.RefundId, "status": string(*resp.Status)}, "")
+
+	response.Success(c, gin.H{
+		"message":        "refund success",
+		"channel":        "wechat",
+		"refund_id":      *resp.RefundId,
+		"out_refund_no":  *resp.OutRefundNo,
+		"transaction_id": *resp.TransactionId,
+		"status":         string(*resp.Status),
+	})
+}
+
+func resolveAdminKey() string {
+	if k := os.Getenv("ALIPAY_PRIVATE_KEY"); k != "" {
+		return k
+	}
+	if p := os.Getenv("ALIPAY_PRIVATE_KEY_PATH"); p != "" {
+		data, _ := os.ReadFile(p)
+		return string(data)
+	}
+	return ""
+}
+
+func resolveWechatAdminKey() string {
+	if k := os.Getenv("WECHAT_PRIVATE_KEY"); k != "" {
+		return k
+	}
+	if p := os.Getenv("WECHAT_PRIVATE_KEY_PATH"); p != "" {
+		data, _ := os.ReadFile(p)
+		return string(data)
+	}
+	return ""
 }
 
 var _ = json.Marshal

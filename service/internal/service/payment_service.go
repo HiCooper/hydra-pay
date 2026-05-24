@@ -20,6 +20,7 @@ import (
 	"github.com/hydra/pay-service/internal/model"
 	"github.com/hydra/pay-service/internal/repository"
 	"github.com/hydra/pay-service/pkg/errors"
+	"github.com/hydra/pay-service/pkg/tradeno"
 )
 
 var webhookClient = &http.Client{
@@ -32,14 +33,21 @@ var webhookClient = &http.Client{
 }
 
 type PaymentService struct {
-	repo           *repository.PaymentRepository
+	repo     *repository.PaymentRepository
+	taskRepo *repository.ScheduledTaskRepository
 	wallWebhookURL string
-	cfg            *config.Config
-	db             *gorm.DB
+	cfg      *config.Config
+	db       *gorm.DB
 }
 
 func NewPaymentService(repo *repository.PaymentRepository, cfg *config.Config, db *gorm.DB) *PaymentService {
-	return &PaymentService{repo: repo, wallWebhookURL: cfg.Wall.WebhookURL, cfg: cfg, db: db}
+	return &PaymentService{
+		repo:     repo,
+		taskRepo: repository.NewScheduledTaskRepository(db),
+		wallWebhookURL: cfg.Wall.WebhookURL,
+		cfg:      cfg,
+		db:       db,
+	}
 }
 
 type CreatePaymentInput struct {
@@ -94,7 +102,10 @@ func (s *PaymentService) CreatePayment(ctx context.Context, input *CreatePayment
 		meta = datatypes.JSON(marshalOrEmpty(input.Metadata))
 	}
 
+	tradeNo := tradeno.Generate(input.ChannelName)
+
 	payment := &model.Payment{
+		TradeNo:     tradeNo,
 		AppID:       input.AppID,
 		UserID:      input.UserID,
 		PlanID:      input.PlanID,
@@ -116,7 +127,7 @@ func (s *PaymentService) CreatePayment(ctx context.Context, input *CreatePayment
 		payment.ID, "", nil, "")
 
 	chResp, err := adapter.CreatePayment(ctx, &channel.CreatePaymentRequest{
-		PaymentID:      payment.ID.String(),
+		PaymentID:      tradeNo,
 		Amount:         input.Amount,
 		Currency:       input.Currency,
 		Description:    input.Description,
@@ -147,6 +158,16 @@ func (s *PaymentService) CreatePayment(ctx context.Context, input *CreatePayment
 	}
 	payment.Status = model.PaymentStatusProcessing
 	payment.ExternalID = chResp.ChannelTxID
+
+	// Schedule timeout check
+	if err := s.taskRepo.Create(&model.ScheduledTask{
+		TaskType:    model.TaskTypeOrderTimeout,
+		ReferenceID: payment.ID,
+		ExecuteAt:   payment.CreatedAt.Add(15 * time.Minute),
+		Status:      model.TaskStatusPending,
+	}); err != nil {
+		log.Printf("[pay] failed to schedule timeout task for %s: %v", tradeNo, err)
+	}
 
 	return &CreatePaymentResult{
 		Payment:    payment,
@@ -185,33 +206,31 @@ func (s *PaymentService) HandleCallback(ctx context.Context, channelName string,
 
 	result, err := adapter.VerifyCallback(ctx, data)
 	if err != nil {
-		// Record failed verification attempt
 		log.Printf("[pay] callback verification failed: channel=%s, err=%v", channelName, err)
 		return nil, errors.Wrap(errors.InvalidSignature, "callback verification failed", err)
 	}
 
-	paymentID, err := uuid.Parse(result.PaymentID)
-	if err != nil {
-		return nil, errors.New(errors.ValidationError, "invalid payment ID in verified callback")
+	// Deduplicate by channel notification ID
+	if isDuplicate := checkDedup(s.db, result); isDuplicate {
+		log.Printf("[pay] duplicate callback ignored: channel=%s, payment_id=%s", channelName, result.PaymentID)
+		return result, nil
 	}
 
-	// Record successful verification with parsed result
-	repository.RecordEvent(s.db, model.EventCallbackReceived, channelName,
-		paymentID, string(data.RawBody),
-		map[string]interface{}{
-			"channel_tx_id": result.ChannelTxID,
-			"status":        result.Status,
-			"amount":        result.Amount,
-			"currency":      result.Currency,
-		}, "")
+	tradeNo := result.PaymentID
 
-	payment, err := s.repo.GetByID(paymentID)
+	payment, err := s.repo.GetByTradeNo(tradeNo)
 	if err != nil {
-		return nil, errors.New(errors.NotFound, "payment not found for callback")
+		return nil, errors.New(errors.NotFound, "payment not found for trade_no: "+tradeNo)
 	}
+
+	// Persist channel-specific callback record
+	saveCallback(s.db, payment.ID, result)
+
+	// Cancel scheduled timeout task
+	s.taskRepo.CancelByReference(payment.ID)
 
 	if payment.Status == model.PaymentStatusPaid || payment.Status == model.PaymentStatusRefunded {
-		log.Printf("[pay] callback ignored: payment %s already in terminal state %s", paymentID, payment.Status)
+		log.Printf("[pay] callback ignored: trade_no=%s already in terminal state %s", tradeNo, payment.Status)
 		return result, nil
 	}
 
@@ -219,28 +238,28 @@ func (s *PaymentService) HandleCallback(ctx context.Context, channelName string,
 
 	switch result.Status {
 	case model.PaymentStatusPaid:
-		applied, err := s.repo.MarkPaidIfPending(paymentID, result.ChannelTxID)
+		applied, err := s.repo.MarkPaidIfPending(payment.ID, result.ChannelTxID)
 		if err != nil {
 			return nil, err
 		}
 		if !applied {
-			log.Printf("[pay] callback race: payment %s already updated by concurrent callback", paymentID)
+			log.Printf("[pay] callback race: trade_no=%s already updated by concurrent callback", tradeNo)
 			return result, nil
 		}
 		payment.Status = model.PaymentStatusPaid
 	case model.PaymentStatusFailed:
-		if err := s.repo.UpdateStatus(paymentID, model.PaymentStatusFailed, result.ChannelTxID); err != nil {
+		if err := s.repo.UpdateStatus(payment.ID, model.PaymentStatusFailed, result.ChannelTxID); err != nil {
 			return nil, err
 		}
 		payment.Status = model.PaymentStatusFailed
 	default:
-		log.Printf("[pay] callback received non-terminal status: %s for payment %s", result.Status, paymentID)
+		log.Printf("[pay] callback received non-terminal status: %s for trade_no=%s", result.Status, tradeNo)
 		return result, nil
 	}
 
 	// Record status transition
 	repository.RecordEvent(s.db, model.EventStatusChanged, channelName,
-		paymentID, "",
+		payment.ID, "",
 		map[string]interface{}{
 			"from": fromStatus,
 			"to":   payment.Status,
@@ -335,6 +354,37 @@ func (s *PaymentService) sendWebhook(url string, body []byte) error {
 		return fmt.Errorf("unexpected status %d", resp.StatusCode)
 	}
 	return nil
+}
+
+// checkDedup returns true if this callback notification has already been processed.
+func checkDedup(db *gorm.DB, result *channel.CallbackResult) bool {
+	if result.AlipayCallback != nil && result.AlipayCallback.NotifyID != "" {
+		var count int64
+		db.Model(&model.AlipayCallback{}).Where("notify_id = ?", result.AlipayCallback.NotifyID).Count(&count)
+		return count > 0
+	}
+	if result.WeChatCallback != nil && result.WeChatCallback.NotificationID != "" {
+		var count int64
+		db.Model(&model.WeChatCallback{}).Where("notification_id = ?", result.WeChatCallback.NotificationID).Count(&count)
+		return count > 0
+	}
+	return false
+}
+
+// saveCallback persists the channel-specific callback record.
+func saveCallback(db *gorm.DB, paymentID uuid.UUID, result *channel.CallbackResult) {
+	if result.AlipayCallback != nil {
+		result.AlipayCallback.PaymentID = paymentID
+		if err := db.Create(result.AlipayCallback).Error; err != nil {
+			log.Printf("[pay] failed to save alipay callback: %v", err)
+		}
+	}
+	if result.WeChatCallback != nil {
+		result.WeChatCallback.PaymentID = paymentID
+		if err := db.Create(result.WeChatCallback).Error; err != nil {
+			log.Printf("[pay] failed to save wechat callback: %v", err)
+		}
+	}
 }
 
 func marshalOrEmpty(v interface{}) []byte {

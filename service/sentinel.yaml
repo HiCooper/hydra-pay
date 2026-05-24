@@ -1,0 +1,42 @@
+service:
+  name: hydra-pay
+  display_name: "Hydra 支付网关"
+  language: go
+  repo:
+    url: "https://github.com/hydra-pay/hydra-pay"
+    default_branch: main
+    fix_branch_prefix: "sentinel/auto-fix"
+  owner:
+    team: "payment-team"
+
+log_config:
+  format: json
+  level_field: level
+  message_field: message
+  error_code_field: error_code
+  stack_field: stack
+  trace_field: trace_id
+  service_field: service
+
+error_rules:
+  ignore_patterns:
+    - error_code: "VALIDATION_ERROR"
+    - message_pattern: "user .* cancelled"
+
+safety:
+  extra_blacklist_paths:
+    - "internal/service/payment_service.go"
+    - "internal/service/order_sync.go"
+    - "internal/channel/**"
+  extra_blacklist_keywords:
+    - "Ledger"
+    - "settlement"
+    - "refund"
+
+fix_pipeline:
+  test_command: "go test ./..."
+  build_command: "go build ./cmd/server"
+  lint_command: "golangci-lint run"
+  test_timeout_seconds: 120
+  pr_labels: ["auto-fix", "sentinel"]
+  pr_reviewers: ["payment-team"]

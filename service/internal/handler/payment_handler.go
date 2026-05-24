@@ -97,6 +97,7 @@ func (h *PaymentHandler) CreatePayment(c *gin.Context) {
 
 	response.Success(c, gin.H{
 		"payment_id":  result.Payment.ID.String(),
+		"trade_no":    result.Payment.TradeNo,
 		"channel":     result.Payment.Channel,
 		"amount":      result.Payment.Amount,
 		"currency":    result.Payment.Currency,
@@ -128,6 +129,7 @@ func (h *PaymentHandler) GetPayment(c *gin.Context) {
 
 	response.Success(c, gin.H{
 		"id":          payment.ID.String(),
+		"trade_no":    payment.TradeNo,
 		"app_id":      payment.AppID.String(),
 		"user_id":     payment.UserID,
 		"plan_id":     payment.PlanID,
@@ -192,24 +194,29 @@ func (h *PaymentHandler) Callback(c *gin.Context) {
 }
 
 // handleServiceError converts service errors to HTTP responses.
-func handleServiceError(c *gin.Context, err error) {
-	appErr, ok := err.(*errors.AppError)
-	if !ok {
-		response.Error(c, http.StatusInternalServerError, errors.InternalError, "Internal server error")
-		return
+	// handleServiceError converts service errors to HTTP responses.
+	func handleServiceError(c *gin.Context, err error) {
+		appErr, ok := err.(*errors.AppError)
+		if !ok {
+			response.Error(c, http.StatusInternalServerError, errors.InternalError, "Internal server error")
+			return
+		}
+		msg := appErr.Message
+		if appErr.Unwrap() != nil {
+			msg = appErr.Message + ": " + appErr.Unwrap().Error()
+		}
+		switch appErr.Code {
+		case errors.ValidationError:
+			response.Error(c, http.StatusBadRequest, appErr.Code, msg)
+		case errors.NotFound:
+			response.Error(c, http.StatusNotFound, appErr.Code, msg)
+		case errors.Unauthorized:
+			response.Error(c, http.StatusUnauthorized, appErr.Code, msg)
+		case errors.PaymentFailed, errors.ChannelError:
+			response.Error(c, http.StatusBadGateway, appErr.Code, msg)
+		case errors.InvalidSignature:
+			response.Error(c, http.StatusBadRequest, appErr.Code, msg)
+		default:
+			response.Error(c, http.StatusInternalServerError, errors.InternalError, msg)
+		}
 	}
-	switch appErr.Code {
-	case errors.ValidationError:
-		response.Error(c, http.StatusBadRequest, appErr.Code, appErr.Message)
-	case errors.NotFound:
-		response.Error(c, http.StatusNotFound, appErr.Code, appErr.Message)
-	case errors.Unauthorized:
-		response.Error(c, http.StatusUnauthorized, appErr.Code, appErr.Message)
-	case errors.PaymentFailed, errors.ChannelError:
-		response.Error(c, http.StatusBadGateway, appErr.Code, appErr.Message)
-	case errors.InvalidSignature:
-		response.Error(c, http.StatusBadRequest, appErr.Code, appErr.Message)
-	default:
-		response.Error(c, http.StatusInternalServerError, errors.InternalError, "Internal server error")
-	}
-}

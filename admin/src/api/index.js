@@ -1,4 +1,5 @@
-const BASE = '/api/admin'
+export const SERVER = import.meta.env.VITE_SERVER_BASE || 'http://localhost:8082'
+const BASE = SERVER + '/api/admin'
 const H = { 'X-Admin-Key': 'admin-dev-key', 'Content-Type': 'application/json' }
 
 async function request(path) {
@@ -6,6 +7,17 @@ async function request(path) {
   const json = await res.json()
   if (!json.success) throw new Error(json.error?.message || 'Request failed')
   return json.data
+}
+
+export async function exportCSV(params) {
+  const res = await fetch(BASE + '/orders/export?' + params, { headers: H })
+  if (!res.ok) throw new Error('Export failed')
+  const blob = await res.blob()
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  const ts = new Date().toISOString().replace(/[-:]/g,'').replace('T','_').slice(0,15)
+  a.href = url; a.download = `星河支付_${ts}.csv`; a.click()
+  URL.revokeObjectURL(url)
 }
 
 export const api = {
