@@ -77,6 +77,9 @@ type CreatePaymentResult struct {
 }
 
 func getAdapter(name string, cfg *config.Config) (channel.Adapter, error) {
+	if cfg == nil {
+		return nil, fmt.Errorf("config cannot be nil")
+	}
 	switch name {
 	case model.ChannelAlipay:
 		return alipay.NewAdapter(&cfg.Alipay)
@@ -88,6 +91,10 @@ func getAdapter(name string, cfg *config.Config) (channel.Adapter, error) {
 }
 
 func (s *PaymentService) CreatePayment(ctx context.Context, input *CreatePaymentInput) (*CreatePaymentResult, error) {
+	if input == nil {
+		return nil, errors.New(errors.ValidationError, "payment input cannot be nil")
+	}
+
 	adapter, err := getAdapter(input.ChannelName, s.cfg)
 	if err != nil {
 		return nil, errors.Wrap(errors.ChannelError, "failed to init channel adapter", err)
