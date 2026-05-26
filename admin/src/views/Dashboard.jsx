@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Card, Statistic, Table, Row, Col, Spin } from 'antd'
-import { ShoppingCartOutlined, CheckCircleOutlined, DollarOutlined, PercentageOutlined } from '@ant-design/icons'
+import { ShoppingCartOutlined, CheckCircleOutlined, PercentageOutlined } from '@ant-design/icons'
 import { api } from '../api/index.js'
 
 export default function Dashboard() {
@@ -29,7 +29,7 @@ export default function Dashboard() {
           <Card><Statistic title="成功率" value={(d.success_rate || 0).toFixed(1)} suffix="%" prefix={<PercentageOutlined />} precision={1} /></Card>
         </Col>
         <Col span={6}>
-          <Card><Statistic title="今日收入" value={d.today_revenue || 0} prefix={<DollarOutlined />} precision={2} prefix="¥" /></Card>
+          <Card><Statistic title="今日收入" value={d.today_revenue || 0} prefix="¥" precision={2} /></Card>
         </Col>
       </Row>
 

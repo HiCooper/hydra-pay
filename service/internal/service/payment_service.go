@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"time"
 
@@ -20,6 +19,7 @@ import (
 	"github.com/hydra/pay-service/internal/model"
 	"github.com/hydra/pay-service/internal/repository"
 	"github.com/hydra/pay-service/pkg/errors"
+	"github.com/hydra/pay-service/pkg/logger"
 	"github.com/hydra/pay-service/pkg/tradeno"
 	"github.com/hydra/pay-service/pkg/webhook"
 )
@@ -119,7 +119,7 @@ func (s *PaymentService) Refund(ctx context.Context, input *RefundInput) (*Refun
 
 	// Idempotency: check if refund already exists
 	if existing, err := s.refundRepo.GetByOutRequestNo(outReqNo); err == nil {
-		log.Printf("[pay] refund already exists: out_request_no=%s, status=%s", outReqNo, existing.Status)
+		logger.Info(ctx, "refund already exists", "out_request_no", outReqNo, "status", existing.Status)
 		return &RefundResult{Refund: existing, Payment: payment}, nil
 	}
 
@@ -169,7 +169,7 @@ func (s *PaymentService) Refund(ctx context.Context, input *RefundInput) (*Refun
 	refund.ResponseData = respJSON
 
 	if err := s.repo.UpdateStatus(payment.ID, model.PaymentStatusRefunded, payment.ExternalID); err != nil {
-		log.Printf("[pay] failed to update payment status to refunded: %v", err)
+		logger.Error(ctx, "failed to update payment status to refunded", "error", err)
 	}
 	payment.Status = model.PaymentStatusRefunded
 
@@ -244,7 +244,7 @@ func (s *PaymentService) CreatePayment(ctx context.Context, input *CreatePayment
 		ExecuteAt:   payment.CreatedAt.Add(15 * time.Minute),
 		Status:      model.TaskStatusPending,
 	}); err != nil {
-		log.Printf("[pay] failed to schedule timeout task for %s: %v", tradeNo, err)
+		logger.Error(ctx, "failed to schedule timeout task", "trade_no", tradeNo, "error", err)
 	}
 
 	// If channel is specified, activate immediately
@@ -292,13 +292,13 @@ func (s *PaymentService) ActivateChannel(ctx context.Context, payment *model.Pay
 		payment.ID, "", chResp.RawResponse, "")
 
 	if updateErr := s.repo.UpdateStatus(payment.ID, model.PaymentStatusProcessing, chResp.ChannelTxID); updateErr != nil {
-		log.Printf("[pay] failed to update payment status to processing: %v", updateErr)
+		logger.Error(ctx, "failed to update payment status to processing", "error", updateErr)
 	}
 	if updateErr := s.repo.UpdateChannelURLs(payment.ID, chResp.PaymentURL, chResp.QRCodeURL); updateErr != nil {
-		log.Printf("[pay] failed to update payment URLs: %v", updateErr)
+		logger.Error(ctx, "failed to update payment URLs", "error", updateErr)
 	}
 	if updateErr := s.repo.UpdateChannel(payment.ID, input.ChannelName); updateErr != nil {
-		log.Printf("[pay] failed to update payment channel: %v", updateErr)
+		logger.Error(ctx, "failed to update payment channel", "error", updateErr)
 	}
 
 	payment.Status = model.PaymentStatusProcessing
@@ -335,7 +335,7 @@ func (s *PaymentService) ListPayments(appID uuid.UUID, page, pageSize int) ([]mo
 // HandleCallback verifies the callback with the channel adapter and updates the payment.
 func (s *PaymentService) HandleCallback(ctx context.Context, channelName string, data *channel.CallbackData) (*channel.CallbackResult, error) {
 	// Record raw callback arrival before any processing
-	log.Printf("[pay] callback received: channel=%s, body_len=%d", channelName, len(data.RawBody))
+	logger.Info(ctx, "callback received", "channel", channelName, "body_len", len(data.RawBody))
 
 	adapter, err := GetAdapter(channelName, s.cfg)
 	if err != nil {
@@ -344,13 +344,13 @@ func (s *PaymentService) HandleCallback(ctx context.Context, channelName string,
 
 	result, err := adapter.VerifyCallback(ctx, data)
 	if err != nil {
-		log.Printf("[pay] callback verification failed: channel=%s, err=%v", channelName, err)
+		logger.Error(ctx, "callback verification failed", "channel", channelName, "error", err)
 		return nil, errors.Wrap(errors.InvalidSignature, "callback verification failed", err)
 	}
 
 	// Deduplicate by channel notification ID
 	if isDuplicate := checkDedup(s.db, result); isDuplicate {
-		log.Printf("[pay] duplicate callback ignored: channel=%s, payment_id=%s", channelName, result.PaymentID)
+		logger.Info(ctx, "duplicate callback ignored", "channel", channelName, "payment_id", result.PaymentID)
 		return result, nil
 	}
 
@@ -368,7 +368,7 @@ func (s *PaymentService) HandleCallback(ctx context.Context, channelName string,
 	s.taskRepo.CancelByReference(payment.ID)
 
 	if payment.Status == model.PaymentStatusPaid || payment.Status == model.PaymentStatusRefunded {
-		log.Printf("[pay] callback ignored: trade_no=%s already in terminal state %s", tradeNo, payment.Status)
+		logger.Info(ctx, "callback ignored, already in terminal state", "trade_no", tradeNo, "status", payment.Status)
 		return result, nil
 	}
 
@@ -381,7 +381,7 @@ func (s *PaymentService) HandleCallback(ctx context.Context, channelName string,
 			return nil, err
 		}
 		if !applied {
-			log.Printf("[pay] callback race: trade_no=%s already updated by concurrent callback", tradeNo)
+			logger.Warn(ctx, "callback race, already updated by concurrent callback", "trade_no", tradeNo)
 			return result, nil
 		}
 		payment.Status = model.PaymentStatusPaid
@@ -391,7 +391,7 @@ func (s *PaymentService) HandleCallback(ctx context.Context, channelName string,
 		}
 		payment.Status = model.PaymentStatusFailed
 	default:
-		log.Printf("[pay] callback received non-terminal status: %s for trade_no=%s", result.Status, tradeNo)
+		logger.Info(ctx, "callback received non-terminal status", "status", result.Status, "trade_no", tradeNo)
 		return result, nil
 	}
 
@@ -411,7 +411,7 @@ func (s *PaymentService) HandleCallback(ctx context.Context, channelName string,
 func (s *PaymentService) safeNotifyWall(payment *model.Payment, result *channel.CallbackResult) {
 	defer func() {
 		if r := recover(); r != nil {
-			log.Printf("[pay] panic in notifyWall: %v", r)
+			logger.Error(context.Background(), "panic in webhook notification", "error", r)
 		}
 	}()
 	s.notifyWall(payment, result)
@@ -452,7 +452,7 @@ func (s *PaymentService) notifyWall(payment *model.Payment, result *channel.Call
 
 	body, err := json.Marshal(payload)
 	if err != nil {
-		log.Printf("[pay] failed to marshal webhook payload: %v", err)
+		logger.Error(context.Background(), "failed to marshal webhook payload", "error", err)
 		return
 	}
 
@@ -464,7 +464,7 @@ func (s *PaymentService) notifyWall(payment *model.Payment, result *channel.Call
 		}
 		if err := s.sendWebhook(webhookURL, body, webhookSecret); err != nil {
 			lastErr = err
-			log.Printf("[pay] webhook attempt %d/3 to %s failed: %v", i+1, webhookURL, err)
+			logger.Warn(context.Background(), "webhook attempt failed", "attempt", i+1, "url", webhookURL, "error", err)
 			continue
 		}
 		repository.RecordEvent(s.db, model.EventWebhookSent, payment.Channel,
@@ -475,13 +475,13 @@ func (s *PaymentService) notifyWall(payment *model.Payment, result *channel.Call
 	repository.RecordEvent(s.db, model.EventWebhookSent, payment.Channel,
 		payment.ID, string(body), nil,
 		fmt.Sprintf("failed after 3 attempts: %v", lastErr))
-	log.Printf("[pay] webhook permanently failed after 3 attempts: %v", lastErr)
+	logger.Error(context.Background(), "webhook permanently failed after 3 attempts", "error", lastErr)
 }
 
 func (s *PaymentService) safeNotifyWallRefund(payment *model.Payment, refund *model.Refund) {
 	defer func() {
 		if r := recover(); r != nil {
-			log.Printf("[pay] panic in notifyWallRefund: %v", r)
+			logger.Error(context.Background(), "panic in refund webhook notification", "error", r)
 		}
 	}()
 	s.notifyWallRefund(payment, refund)
@@ -519,7 +519,7 @@ func (s *PaymentService) notifyWallRefund(payment *model.Payment, refund *model.
 
 	body, err := json.Marshal(payload)
 	if err != nil {
-		log.Printf("[pay] failed to marshal refund webhook payload: %v", err)
+		logger.Error(context.Background(), "failed to marshal refund webhook payload", "error", err)
 		return
 	}
 
@@ -531,7 +531,7 @@ func (s *PaymentService) notifyWallRefund(payment *model.Payment, refund *model.
 		}
 		if err := s.sendWebhook(webhookURL, body, webhookSecret); err != nil {
 			lastErr = err
-			log.Printf("[pay] refund webhook attempt %d/3 to %s failed: %v", i+1, webhookURL, err)
+			logger.Warn(context.Background(), "refund webhook attempt failed", "attempt", i+1, "url", webhookURL, "error", err)
 			continue
 		}
 		repository.RecordEvent(s.db, model.EventWebhookSent, payment.Channel,
@@ -542,7 +542,7 @@ func (s *PaymentService) notifyWallRefund(payment *model.Payment, refund *model.
 	repository.RecordEvent(s.db, model.EventWebhookSent, payment.Channel,
 		payment.ID, string(body), nil,
 		fmt.Sprintf("failed after 3 attempts: %v", lastErr))
-	log.Printf("[pay] refund webhook permanently failed after 3 attempts: %v", lastErr)
+	logger.Error(context.Background(), "refund webhook permanently failed after 3 attempts", "error", lastErr)
 }
 
 func (s *PaymentService) sendWebhook(url string, body []byte, secret string) error {
@@ -592,13 +592,13 @@ func saveCallback(db *gorm.DB, paymentID uuid.UUID, result *channel.CallbackResu
 	if result.AlipayCallback != nil {
 		result.AlipayCallback.PaymentID = paymentID
 		if err := db.Create(result.AlipayCallback).Error; err != nil {
-			log.Printf("[pay] failed to save alipay callback: %v", err)
+			logger.Error(context.Background(), "failed to save alipay callback", "error", err)
 		}
 	}
 	if result.WeChatCallback != nil {
 		result.WeChatCallback.PaymentID = paymentID
 		if err := db.Create(result.WeChatCallback).Error; err != nil {
-			log.Printf("[pay] failed to save wechat callback: %v", err)
+			logger.Error(context.Background(), "failed to save wechat callback", "error", err)
 		}
 	}
 }

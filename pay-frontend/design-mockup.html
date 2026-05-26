@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HydraPay Checkout — Design Mockup</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f0f2f5; color: #1a1a2e; }
+
+  /* Layout */
+  .mockup-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 30px; padding: 40px; max-width: 1500px; margin: 0 auto; }
+  @media (max-width: 1200px) { .mockup-grid { grid-template-columns: 1fr 1fr; } }
+  @media (max-width: 800px) { .mockup-grid { grid-template-columns: 1fr; } }
+  .mockup-col { display: flex; flex-direction: column; align-items: center; gap: 20px; }
+  .mockup-label { font-size: 13px; color: #999; text-transform: uppercase; letter-spacing: 1px; }
+
+  /* Page background */
+  .page-bg { background: #f0f2f5; min-height: 600px; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 40px 20px; border-radius: 12px; border: 1px solid #e8e8e8; width: 100%; }
+
+  /* Card */
+  .checkout-card { background: #fff; border-radius: 12px; box-shadow: 0 2px 16px rgba(0,0,0,0.08); width: 100%; max-width: 420px; overflow: hidden; }
+  .card-body { padding: 40px 36px; }
+
+  /* Header */
+  .merchant-header { text-align: center; margin-bottom: 10px; }
+  .merchant-icon { width: 44px; height: 44px; background: #1677ff; border-radius: 10px; display: inline-flex; align-items: center; justify-content: center; color: #fff; font-size: 20px; font-weight: 700; margin-bottom: 8px; }
+  .merchant-name { font-size: 14px; color: #666; font-weight: 500; }
+
+  /* Amount */
+  .product-name { font-size: 14px; color: #999; text-align: center; margin-bottom: 8px; }
+  .amount { text-align: center; margin-bottom: 28px; }
+  .amount-value { font-size: 40px; font-weight: 700; color: #1a1a2e; letter-spacing: -1px; }
+  .amount-currency { font-size: 24px; font-weight: 500; color: #999; margin-right: 4px; }
+
+  /* Channel Tabs */
+  .channel-tabs { display: flex; gap: 10px; margin-bottom: 28px; justify-content: center; }
+  .channel-tab { flex: 1; padding: 12px 16px; border: 2px solid #e8e8e8; border-radius: 10px; text-align: center; cursor: pointer; transition: all 0.2s; font-size: 13px; font-weight: 500; background: #fff; }
+  .channel-tab.active { border-color: #1677ff; background: #f0f5ff; color: #1677ff; }
+  .channel-tab .tab-icon { font-size: 18px; display: block; margin-bottom: 4px; }
+  .channel-tab:hover { border-color: #1677ff; }
+
+  /* QR Code */
+  .qr-section { text-align: center; margin-bottom: 24px; }
+  .qr-wrapper { display: inline-block; padding: 16px; border: 2px solid #f0f0f0; border-radius: 12px; background: #fafafa; }
+  .qr-placeholder { width: 200px; height: 200px; background: repeating-linear-gradient(45deg, #f0f0f0, #f0f0f0 5px, #e8e8e8 5px, #e8e8e8 10px); border-radius: 8px; display: flex; align-items: center; justify-content: center; }
+  .qr-pattern { width: 160px; height: 160px; display: grid; grid-template-columns: repeat(8, 1fr); gap: 3px; }
+  .qr-cell { background: #1a1a2e; border-radius: 2px; }
+  .qr-cell.light { background: #ddd; }
+
+  .qr-hint { margin-top: 14px; font-size: 13px; color: #666; }
+  .qr-hint .icon { margin-right: 4px; }
+
+  /* Timer */
+  .timer { text-align: center; font-size: 12px; color: #999; }
+  .timer.warning { color: #fa8c16; }
+  .timer.expired { color: #ff4d4f; }
+
+  /* Footer */
+  .page-footer { text-align: center; font-size: 12px; color: #bbb; margin-top: 24px; }
+
+  /* Success Page */
+  .success-card .card-body { text-align: center; }
+  .success-icon { width: 72px; height: 72px; background: #52c41a; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; margin-bottom: 20px; animation: pop 0.4s ease; }
+  .success-icon svg { width: 36px; height: 36px; }
+  @keyframes pop { 0% { transform: scale(0); } 70% { transform: scale(1.1); } 100% { transform: scale(1); } }
+  .success-title { font-size: 22px; font-weight: 700; margin-bottom: 8px; }
+  .success-amount { font-size: 28px; font-weight: 600; color: #52c41a; margin-bottom: 20px; }
+  .redirect-hint { font-size: 14px; color: #999; }
+  .redirect-hint a { color: #1677ff; text-decoration: none; }
+
+  /* Skeleton */
+  .skeleton { background: linear-gradient(90deg, #f0f0f0 25%, #e8e8e8 50%, #f0f0f0 75%); background-size: 200% 100%; animation: shimmer 1.5s infinite; border-radius: 6px; }
+  @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+
+  /* Mobile variant */
+  .mobile .checkout-card { border-radius: 0; box-shadow: none; max-width: 100%; }
+  .mobile .page-bg { background: #fff; padding: 0; min-height: 100vh; justify-content: flex-start; padding-top: 60px; }
+
+  /* Pay Button (mobile) */
+  .pay-button { display: block; width: 100%; padding: 16px 24px; background: #1677ff; color: #fff; border: none; border-radius: 10px; font-size: 17px; font-weight: 600; cursor: pointer; transition: all 0.2s; text-align: center; }
+  .pay-button:hover { background: #4096ff; transform: translateY(-1px); box-shadow: 0 4px 12px rgba(22,119,255,0.3); }
+  .pay-button.alipay { background: #1677ff; }
+  .pay-button.wechat { background: #07c160; }
+  .pay-button.wechat:hover { background: #06ad56; box-shadow: 0 4px 12px rgba(7,193,96,0.3); }
+  .pay-hint { text-align: center; font-size: 12px; color: #999; margin-top: 10px; }
+
+  /* Divider */
+  .section-label { font-size: 11px; color: #999; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 16px; padding-bottom: 8px; border-bottom: 1px dashed #e8e8e8; }
+</style>
+</head>
+<body>
+
+<div style="text-align:center; padding: 24px 0 0;">
+  <h1 style="font-size:20px; font-weight:700;">HydraPay Checkout — Design Mockup</h1>
+  <p style="color:#999; font-size:13px; margin-top:4px;">托管结算页面视觉设计稿</p>
+</div>
+
+<div class="mockup-grid">
+
+  <!-- ========== 1. Desktop: Checkout ========== -->
+  <div class="mockup-col">
+    <div class="section-label">Desktop — 结算页 (支付宝)</div>
+    <div class="page-bg">
+      <div class="checkout-card">
+        <div class="card-body">
+          <div class="merchant-header">
+            <div class="merchant-icon">S</div>
+            <div class="merchant-name">Sample App</div>
+          </div>
+          <div class="product-name">Premium Monthly Subscription</div>
+          <div class="amount">
+            <span class="amount-currency">¥</span><span class="amount-value">99.00</span>
+          </div>
+          <div class="channel-tabs">
+            <div class="channel-tab active">
+              <span class="tab-icon">🔵</span> 支付宝
+            </div>
+            <div class="channel-tab">
+              <span class="tab-icon">🟢</span> 微信支付
+            </div>
+          </div>
+          <div class="qr-section">
+            <div class="qr-wrapper">
+              <div class="qr-placeholder">
+                <div class="qr-pattern">
+                  <div class="qr-cell"></div><div class="qr-cell"></div><div class="qr-cell"></div><div class="qr-cell light"></div><div class="qr-cell"></div><div class="qr-cell light"></div><div class="qr-cell"></div><div class="qr-cell"></div>
+                  <div class="qr-cell"></div><div class="qr-cell light"></div><div class="qr-cell"></div><div class="qr-cell"></div><div class="qr-cell light"></div><div class="qr-cell"></div><div class="qr-cell"></div><div class="qr-cell light"></div>
+                  <div class="qr-cell"></div><div class="qr-cell"></div><div class="qr-cell light"></div><div class="qr-cell"></div><div class="qr-cell"></div><div class="qr-cell"></div><div class="qr-cell light"></div><div class="qr-cell"></div>
+                  <div class="qr-cell light"></div><div class="qr-cell"></div><div class="qr-cell"></div><div class="qr-cell"></div><div class="qr-cell light"></div><div class="qr-cell"></div><div class="qr-cell"></div><div class="qr-cell"></div>
+                  <div class="qr-cell"></div><div class="qr-cell light"></div><div class="qr-cell"></div><div class="qr-cell light"></div><div class="qr-cell"></div><div class="qr-cell"></div><div class="qr-cell"></div><div class="qr-cell light"></div>
+                  <div class="qr-cell light"></div><div class="qr-cell"></div><div class="qr-cell"></div><div class="qr-cell"></div><div class="qr-cell"></div><div class="qr-cell light"></div><div class="qr-cell"></div><div class="qr-cell"></div>
+                  <div class="qr-cell"></div><div class="qr-cell"></div><div class="qr-cell light"></div><div class="qr-cell"></div><div class="qr-cell light"></div><div class="qr-cell"></div><div class="qr-cell"></div><div class="qr-cell"></div>
+                  <div class="qr-cell"></div><div class="qr-cell light"></div><div class="qr-cell"></div><div class="qr-cell"></div><div class="qr-cell"></div><div class="qr-cell light"></div><div class="qr-cell"></div><div class="qr-cell"></div>
+                </div>
+              </div>
+            </div>
+            <div class="qr-hint"><span class="icon">📱</span>请使用支付宝扫描二维码支付</div>
+          </div>
+          <div class="timer">⏱ 订单有效期: 14:32</div>
+        </div>
+      </div>
+      <div class="page-footer">Powered by HydraPay</div>
+    </div>
+  </div>
+
+  <!-- ========== 2. Desktop: Success ========== -->
+  <div class="mockup-col">
+    <div class="section-label">Desktop — 支付成功页</div>
+    <div class="page-bg">
+      <div class="checkout-card success-card">
+        <div class="card-body">
+          <div class="success-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="20 6 9 17 4 12"></polyline>
+            </svg>
+          </div>
+          <div class="success-title">支付成功</div>
+          <div class="success-amount">¥ 99.00</div>
+          <div class="redirect-hint">
+            即将跳转回商户页面... <span style="color:#1677ff;font-weight:600;">3</span> 秒
+          </div>
+          <div style="margin-top: 12px;">
+            <a href="#" style="color:#1677ff;font-size:13px;text-decoration:none;">立即跳转 →</a>
+          </div>
+        </div>
+      </div>
+      <div class="page-footer">Powered by HydraPay</div>
+    </div>
+  </div>
+
+  <!-- ========== 3. Desktop: Checkout (WeChat) ========== -->
+  <div class="mockup-col">
+    <div class="section-label">Desktop — 结算页 (微信支付)</div>
+    <div class="page-bg">
+      <div class="checkout-card">
+        <div class="card-body">
+          <div class="merchant-header">
+            <div class="merchant-icon">S</div>
+            <div class="merchant-name">Sample App</div>
+          </div>
+          <div class="product-name">Premium Monthly Subscription</div>
+          <div class="amount">
+            <span class="amount-currency">¥</span><span class="amount-value">99.00</span>
+          </div>
+          <div class="channel-tabs">
+            <div class="channel-tab">
+              <span class="tab-icon">🔵</span> 支付宝
+            </div>
+            <div class="channel-tab active">
+              <span class="tab-icon">🟢</span> 微信支付
+            </div>
+          </div>
+          <div class="qr-section">
+            <div class="qr-wrapper">
+              <div class="qr-placeholder">
+                <div class="qr-pattern">
+                  <div class="qr-cell"></div><div class="qr-cell"></div><div class="qr-cell"></div><div class="qr-cell"></div><div class="qr-cell"></div><div class="qr-cell light"></div><div class="qr-cell light"></div><div class="qr-cell"></div>
+                  <div class="qr-cell"></div><div class="qr-cell light"></div><div class="qr-cell light"></div><div class="qr-cell"></div><div class="qr-cell"></div><div class="qr-cell"></div><div class="qr-cell"></div><div class="qr-cell light"></div>
+                  <div class="qr-cell"></div><div class="qr-cell"></div><div class="qr-cell"></div><div class="qr-cell light"></div><div class="qr-cell light"></div><div class="qr-cell"></div><div class="qr-cell"></div><div class="qr-cell"></div>
+                  <div class="qr-cell"></div><div class="qr-cell light"></div><div class="qr-cell"></div><div class="qr-cell"></div><div class="qr-cell"></div><div class="qr-cell"></div><div class="qr-cell light"></div><div class="qr-cell"></div>
+                  <div class="qr-cell"></div><div class="qr-cell"></div><div class="qr-cell"></div><div class="qr-cell light"></div><div class="qr-cell"></div><div class="qr-cell light"></div><div class="qr-cell"></div><div class="qr-cell light"></div>
+                  <div class="qr-cell"></div><div class="qr-cell"></div><div class="qr-cell light"></div><div class="qr-cell"></div><div class="qr-cell"></div><div class="qr-cell"></div><div class="qr-cell light"></div><div class="qr-cell"></div>
+                  <div class="qr-cell"></div><div class="qr-cell light"></div><div class="qr-cell"></div><div class="qr-cell light"></div><div class="qr-cell light"></div><div class="qr-cell"></div><div class="qr-cell"></div><div class="qr-cell"></div>
+                  <div class="qr-cell light"></div><div class="qr-cell"></div><div class="qr-cell"></div><div class="qr-cell"></div><div class="qr-cell"></div><div class="qr-cell light"></div><div class="qr-cell"></div><div class="qr-cell"></div>
+                </div>
+              </div>
+            </div>
+            <div class="qr-hint"><span class="icon">📱</span>请使用微信扫描二维码支付</div>
+          </div>
+          <div class="timer">⏱ 订单有效期: 14:32</div>
+        </div>
+      </div>
+      <div class="page-footer">Powered by HydraPay</div>
+    </div>
+  </div>
+
+  <!-- ========== 4. Mobile: Checkout (支付宝) ========== -->
+  <div class="mockup-col">
+    <div class="section-label">Mobile — 结算页 (点击跳转支付)</div>
+    <div class="page-bg mobile">
+      <div class="checkout-card" style="border-radius:0;box-shadow:none;">
+        <div class="card-body" style="padding: 32px 24px;">
+          <div class="merchant-header">
+            <div class="merchant-icon" style="width:36px;height:36px;font-size:16px;">S</div>
+            <div class="merchant-name">Sample App</div>
+          </div>
+          <div class="product-name">Premium Monthly Subscription</div>
+          <div class="amount">
+            <span class="amount-currency">¥</span><span class="amount-value" style="font-size:34px;">99.00</span>
+          </div>
+          <div class="channel-tabs">
+            <div class="channel-tab active">
+              <span class="tab-icon">🔵</span> 支付宝
+            </div>
+            <div class="channel-tab">
+              <span class="tab-icon">🟢</span> 微信支付
+            </div>
+          </div>
+          <!-- Mobile: big pay button instead of QR code -->
+          <button class="pay-button alipay" style="margin-bottom: 12px;">
+            前往支付宝支付
+          </button>
+          <div class="pay-hint">点击后将跳转至支付宝完成支付</div>
+          <div class="timer" style="margin-top: 16px;">⏱ 订单有效期: 14:32</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========== 5. Mobile: Checkout (微信) ========== -->
+  <div class="mockup-col">
+    <div class="section-label">Mobile — 结算页 (微信支付)</div>
+    <div class="page-bg mobile">
+      <div class="checkout-card" style="border-radius:0;box-shadow:none;">
+        <div class="card-body" style="padding: 32px 24px;">
+          <div class="merchant-header">
+            <div class="merchant-icon" style="width:36px;height:36px;font-size:16px;">S</div>
+            <div class="merchant-name">Sample App</div>
+          </div>
+          <div class="product-name">Premium Monthly Subscription</div>
+          <div class="amount">
+            <span class="amount-currency">¥</span><span class="amount-value" style="font-size:34px;">99.00</span>
+          </div>
+          <div class="channel-tabs">
+            <div class="channel-tab">
+              <span class="tab-icon">🔵</span> 支付宝
+            </div>
+            <div class="channel-tab active">
+              <span class="tab-icon">🟢</span> 微信支付
+            </div>
+          </div>
+          <button class="pay-button wechat" style="margin-bottom: 12px;">
+            前往微信支付
+          </button>
+          <div class="pay-hint">点击后将唤起微信完成支付</div>
+          <div class="timer" style="margin-top: 16px;">⏱ 订单有效期: 14:32</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+</body>
+</html>

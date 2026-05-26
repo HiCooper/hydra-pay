@@ -15,17 +15,20 @@ import (
 	"github.com/hydra/pay-service/internal/repository"
 	"github.com/hydra/pay-service/internal/service"
 	"github.com/hydra/pay-service/pkg/errors"
+	"github.com/hydra/pay-service/pkg/metrics"
 	"github.com/hydra/pay-service/pkg/response"
 )
 
 type PaymentHandler struct {
 	paymentService *service.PaymentService
+	db             *gorm.DB
 }
 
 func NewPaymentHandler(db *gorm.DB, cfg *config.Config) *PaymentHandler {
 	repo := repository.NewPaymentRepository(db)
 	return &PaymentHandler{
 		paymentService: service.NewPaymentService(repo, cfg, db),
+		db:             db,
 	}
 }
 
@@ -67,8 +70,24 @@ func (h *PaymentHandler) CreatePayment(c *gin.Context) {
 	if req.Amount <= 0 {
 		response.Error(c, http.StatusBadRequest, errors.ValidationError, "amount must be positive")
 	}
-	if req.Channel == "" {
-		req.Channel = "alipay"
+
+	// Auto-resolve SubMerchantID from App → Merchant if not provided
+	if req.SubMerchantID == "" && req.Channel != "" {
+		var app model.App
+		if err := h.db.First(&app, "id = ?", appID).Error; err == nil {
+			var merchant model.Merchant
+			if err := h.db.First(&merchant, "id = ?", app.MerchantID).Error; err == nil {
+				switch req.Channel {
+				case model.ChannelAlipay:
+					req.SubMerchantID = merchant.AlipayPID
+				case model.ChannelWechat:
+					req.SubMerchantID = merchant.WechatSubMchid
+				}
+				if req.SubMerchantID != "" && req.SubChannelAppID == "" {
+					req.SubChannelAppID = merchant.WechatSubAppid
+				}
+			}
+		}
 	}
 
 	result, err := h.paymentService.CreatePayment(c.Request.Context(), &service.CreatePaymentInput{
@@ -94,6 +113,8 @@ func (h *PaymentHandler) CreatePayment(c *gin.Context) {
 		handleServiceError(c, err)
 		return
 	}
+
+	metrics.PaymentsCreatedTotal.WithLabelValues(result.Payment.Channel, "success").Inc()
 
 	response.Success(c, gin.H{
 		"payment_id":  result.Payment.ID.String(),

@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"gorm.io/gorm"
 
 	"github.com/hydra/pay-service/internal/admin"
@@ -20,19 +21,39 @@ func Setup(cfg *config.Config, db *gorm.DB) *gin.Engine {
 	gin.SetMode(cfg.Server.Mode)
 	r := gin.New()
 
+	r.Use(middleware.SecurityHeaders())
+	r.Use(middleware.BodyLimit(cfg.Server.MaxBodyBytes))
 	r.Use(middleware.StructuredRecovery())
+	r.Use(middleware.RequestID())
+	r.Use(middleware.Trace())
+	r.Use(middleware.Metrics())
 	r.Use(middleware.StructuredLogger())
 	r.Use(middleware.CORS(cfg.Server.CORSOrigins))
 
 	r.GET("/health", func(c *gin.Context) {
-		c.JSON(200, gin.H{"status": "ok"})
+		healthy := true
+		checks := gin.H{"database": "ok"}
+
+		sqlDB, err := db.DB()
+		if err != nil || sqlDB.Ping() != nil {
+			healthy = false
+			checks["database"] = "error"
+		}
+
+		status := 200
+		if !healthy {
+			status = 503
+		}
+		c.JSON(status, gin.H{"status": map[bool]string{true: "ok", false: "degraded"}[healthy], "checks": checks})
 	})
+	r.GET("/metrics", gin.WrapH(promhttp.Handler()))
 
 	paymentHandler := handler.NewPaymentHandler(db, cfg)
 
 	v1 := r.Group("/v1")
 	v1.Use(middleware.APIKeyAuth(db))
 	v1.Use(middleware.Idempotency(db))
+	v1.Use(middleware.RateLimit(10)) // 10 QPS per app
 	{
 		v1.POST("/payments/create", paymentHandler.CreatePayment)
 		v1.GET("/payments/:id", paymentHandler.GetPayment)
@@ -87,12 +108,18 @@ func Setup(cfg *config.Config, db *gorm.DB) *gin.Engine {
 		admAPI.GET("/dashboard", adminHandler.Dashboard)
 		admAPI.GET("/config", adminHandler.ChannelConfig)
 
+		// Merchants
+		admAPI.GET("/merchants", adminHandler.ListMerchants)
+		admAPI.POST("/merchants", adminHandler.CreateMerchant)
+		admAPI.GET("/merchants/:id", adminHandler.GetMerchant)
+		admAPI.PUT("/merchants/:id", adminHandler.UpdateMerchant)
+		admAPI.GET("/merchants/:id/onboarding", adminHandler.GetOnboardingStatus)
+
+		// Apps
 		admAPI.GET("/apps", adminHandler.ListApps)
 		admAPI.POST("/apps", adminHandler.CreateApp)
 		admAPI.GET("/apps/:id", adminHandler.GetApp)
 		admAPI.PUT("/apps/:id", adminHandler.UpdateApp)
-		admAPI.POST("/apps/:id/onboard", adminHandler.InitiateOnboarding)
-		admAPI.GET("/apps/:id/onboarding", adminHandler.GetOnboardingStatus)
 
 		admAPI.GET("/onboarding", adminHandler.ListOnboardings)
 
@@ -112,10 +139,16 @@ func Setup(cfg *config.Config, db *gorm.DB) *gin.Engine {
 		admAPI.GET("/tools/connectivity", adminHandler.ConnectivityCheck)
 	}
 
-	// Developer Portal API (API Key auth, scoped to app)
-	portalHandler := portal.NewHandler(db)
+	// Developer Portal API
+	// Public login endpoint
+	r.POST("/portal/api/login", func(c *gin.Context) {
+		portal.Login(c, db)
+	})
+
+	portalHandler := portal.NewHandler(db, cfg)
 	portalAPI := r.Group("/portal/api")
-	portalAPI.Use(middleware.APIKeyAuth(db))
+	portalAPI.Use(portal.MerchantAuth(db))
+	portalAPI.Use(middleware.RateLimit(30))
 	{
 		portalAPI.GET("/me", portalHandler.Me)
 		portalAPI.GET("/dashboard", portalHandler.Dashboard)
@@ -123,12 +156,16 @@ func Setup(cfg *config.Config, db *gorm.DB) *gin.Engine {
 		portalAPI.GET("/orders/:id", portalHandler.OrderDetail)
 		portalAPI.GET("/events", portalHandler.Events)
 		portalAPI.PUT("/settings", portalHandler.UpdateSettings)
-			portalAPI.GET("/payment-links", portalHandler.ListPaymentLinks)
-			portalAPI.POST("/payment-links", portalHandler.CreatePaymentLink)
-			portalAPI.POST("/payment-links/:id/expire", portalHandler.ExpirePaymentLink)
-			portalAPI.DELETE("/payment-links/:id", portalHandler.DeletePaymentLink)
-			portalAPI.GET("/subscriptions", portalHandler.ListSubscriptions)
-		}
+		portalAPI.GET("/payment-links", portalHandler.ListPaymentLinks)
+		portalAPI.POST("/payment-links", portalHandler.CreatePaymentLink)
+		portalAPI.POST("/payment-links/:id/expire", portalHandler.ExpirePaymentLink)
+		portalAPI.DELETE("/payment-links/:id", portalHandler.DeletePaymentLink)
+		portalAPI.GET("/subscriptions", portalHandler.ListSubscriptions)
+		portalAPI.GET("/apps", portalHandler.ListApps)
+		portalAPI.POST("/apps", portalHandler.CreateApp)
+		portalAPI.POST("/onboarding", portalHandler.InitiateOnboarding)
+		portalAPI.GET("/onboarding", portalHandler.GetOnboardingStatus)
+	}
 
 	// Developer Portal frontend SPA
 	r.StaticFile("/portal", "../portal/dist/index.html")

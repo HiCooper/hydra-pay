@@ -3,7 +3,6 @@ package alipay
 import (
 	"context"
 	"fmt"
-	"log"
 	"net/url"
 
 	"github.com/smartwalle/alipay/v3"
@@ -11,6 +10,7 @@ import (
 	"github.com/hydra/pay-service/internal/channel"
 	"github.com/hydra/pay-service/internal/model"
 	"github.com/hydra/pay-service/pkg/errors"
+	"github.com/hydra/pay-service/pkg/logger"
 )
 
 // ---- Alipay OnboardingProvider implementation ----
@@ -97,13 +97,13 @@ func (a *Adapter) SubmitOnboarding(ctx context.Context, req *channel.OnboardingR
 			fmt.Sprintf("alipay onboarding create error: %s (code=%s, sub_code=%s)", rsp.Msg, rsp.Code, rsp.SubCode))
 	}
 
-	log.Printf("[alipay] onboarding submitted: out_biz_no=%s, order_id=%s", req.OutRequestNo, rsp.OrderID)
+	logger.Info(ctx, "onboarding submitted", "out_biz_no", req.OutRequestNo, "order_id", rsp.OrderID)
 
 	// Query for sign URL
 	var queryRsp antMerchantQueryRsp
 	queryParam := antMerchantQueryParam{OrderID: rsp.OrderID}
 	if err := a.client.Request(ctx, queryParam, &queryRsp); err != nil {
-		log.Printf("[alipay] onboarding query for sign URL failed: %v", err)
+		logger.Error(ctx, "onboarding query for sign URL failed", "error", err)
 	}
 
 	return &channel.OnboardingResponse{
@@ -152,7 +152,7 @@ func (a *Adapter) VerifyOnboardingCallback(ctx context.Context, data *channel.Ca
 	subMerchantID := values.Get("sub_merchant_id")
 	rejectReason := values.Get("fail_reason")
 
-	log.Printf("[alipay] onboarding callback: order_id=%s, notify_type=%s, result=%s", orderID, notifyType, resultCode)
+	logger.Info(ctx, "onboarding callback", "order_id", orderID, "notify_type", notifyType, "result", resultCode)
 
 	status := model.OnboardingStatusAuditing
 	if resultCode == "SUCCESS" {

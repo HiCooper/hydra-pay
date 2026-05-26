@@ -4,13 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
-
 	"github.com/wechatpay-apiv3/wechatpay-go/core"
 
 	"github.com/hydra/pay-service/internal/channel"
 	"github.com/hydra/pay-service/internal/model"
 	"github.com/hydra/pay-service/pkg/errors"
+	"github.com/hydra/pay-service/pkg/logger"
 )
 
 // ---- WeChat Pay OnboardingProvider implementation ----
@@ -103,7 +102,7 @@ func (a *Adapter) SubmitOnboarding(ctx context.Context, req *channel.OnboardingR
 		return nil, errors.Wrap(errors.ChannelError, "wechat onboarding parse response failed", err)
 	}
 
-	log.Printf("[wechat] onboarding submitted: out_request_no=%s, applyment_id=%s", req.OutRequestNo, rsp.ApplymentID)
+	logger.Info(ctx, "onboarding submitted", "out_request_no", req.OutRequestNo, "applyment_id", rsp.ApplymentID)
 
 	return &channel.OnboardingResponse{
 		ApplymentID: rsp.ApplymentID,
@@ -125,7 +124,7 @@ func (a *Adapter) QueryOnboarding(ctx context.Context, applymentID string) (*cha
 		return nil, errors.Wrap(errors.ChannelError, "wechat onboarding query parse failed", err)
 	}
 
-	log.Printf("[wechat] onboarding query: applyment_id=%s, state=%s, sub_mchid=%s", applymentID, rsp.ApplymentState, rsp.SubMchid)
+	logger.Info(ctx, "onboarding query", "applyment_id", applymentID, "state", rsp.ApplymentState, "sub_mchid", rsp.SubMchid)
 
 	status := mapWechatApplyState(rsp.ApplymentState)
 	statusRsp := &channel.OnboardingStatusResponse{
@@ -140,7 +139,7 @@ func (a *Adapter) QueryOnboarding(ctx context.Context, applymentID string) (*cha
 		signPath := fmt.Sprintf(applymentSignPath, rsp.SubMchid, applymentID)
 		signResult, err := a.client.Get(ctx, signPath)
 		if err != nil {
-			log.Printf("[wechat] failed to get sign URL: %v", err)
+			logger.Error(ctx, "failed to get sign URL", "error", err)
 		} else {
 			var signRsp wechatSignRsp
 			if err := core.UnMarshalResponse(signResult.Response, &signRsp); err == nil {
@@ -207,7 +206,7 @@ func (a *Adapter) VerifyOnboardingCallback(ctx context.Context, data *channel.Ca
 		return nil, errors.New(errors.ValidationError, "failed to parse wechat onboarding event")
 	}
 
-	log.Printf("[wechat] onboarding callback: applyment_id=%s, state=%s, sub_mchid=%s", event.ApplymentID, event.State, event.SubMchid)
+	logger.Info(ctx, "onboarding callback", "applyment_id", event.ApplymentID, "state", event.State, "sub_mchid", event.SubMchid)
 
 	return &channel.OnboardingCallbackResult{
 		ApplymentID:   event.ApplymentID,

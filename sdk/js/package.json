@@ -1,0 +1,36 @@
+{
+  "name": "hydrapay",
+  "version": "1.0.0",
+  "description": "HydraPay API client for Node.js — payments, refunds, subscriptions, checkout, and webhooks.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "test": "tsx --test __tests__/*.test.ts"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "hydrapay",
+    "payment",
+    "alipay",
+    "wechat"
+  ],
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "ts-node": "^10.9.0",
+    "typescript": "^5.0.0"
+  }
+}

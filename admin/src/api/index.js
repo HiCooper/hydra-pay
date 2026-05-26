@@ -23,9 +23,20 @@ export async function exportCSV(params) {
 export const api = {
   dashboard: () => request('/dashboard'),
   config: () => request('/config'),
+
+  // Merchants
+  listMerchants: () => request('/merchants'),
+  createMerchant: (body) => fetch(BASE + '/merchants', { method: 'POST', headers: H, body: JSON.stringify(body) }).then(r => r.json()).then(j => { if (!j.success) throw new Error(j.error?.message); return j.data }),
+  getMerchant: (id) => request('/merchants/' + id),
+  updateMerchant: (id, body) => fetch(BASE + '/merchants/' + id, { method: 'PUT', headers: H, body: JSON.stringify(body) }).then(r => r.json()).then(j => { if (!j.success) throw new Error(j.error?.message); return j.data }),
+  getMerchantOnboarding: (id) => fetch(BASE + '/merchants/' + id + '/onboarding', { headers: H }).then(r => r.json()).then(j => { if (!j.success) return null; return j.data }),
+
+  // Apps
   listApps: () => request('/apps'),
   createApp: (body) => fetch(BASE + '/apps', { method: 'POST', headers: H, body: JSON.stringify(body) }).then(r => r.json()).then(j => { if (!j.success) throw new Error(j.error?.message); return j.data }),
   updateApp: (id, body) => fetch(BASE + '/apps/' + id, { method: 'PUT', headers: H, body: JSON.stringify(body) }).then(r => r.json()).then(j => { if (!j.success) throw new Error(j.error?.message); return j.data }),
+
+  // Orders
   listOrders: (params = '') => fetch(BASE + '/orders?' + params, { headers: H }).then(r => r.json()).then(j => j.data),
   getOrder: (id) => request('/orders/' + id),
   listEvents: (paymentId) => request('/events?payment_id=' + paymentId),

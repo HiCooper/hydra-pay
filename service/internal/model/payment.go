@@ -33,6 +33,8 @@ type Payment struct {
 	Channel     string         `gorm:"type:varchar(50);not null"`
 	Status      string         `gorm:"type:varchar(20);not null;default:pending"`
 	ExternalID  string         `gorm:"type:varchar(255)"`
+	PaymentURL  string         `gorm:"type:varchar(1000)"`
+	QRCodeURL   string         `gorm:"type:varchar(1000)"`
 	Description string         `gorm:"type:varchar(500)"`
 	SuccessURL  string         `gorm:"type:varchar(500)"`
 	CancelURL   string         `gorm:"type:varchar(500)"`

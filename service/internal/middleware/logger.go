@@ -1,39 +1,34 @@
 package middleware
 
 import (
-	"encoding/json"
-	"log"
-	"os"
+	"log/slog"
 	"time"
 
 	"github.com/gin-gonic/gin"
 )
 
 func StructuredLogger() gin.HandlerFunc {
-	logger := log.New(os.Stdout, "", 0)
 	return func(c *gin.Context) {
 		start := time.Now()
 		c.Next()
-		entry := map[string]interface{}{
-			"timestamp":  start.Format(time.RFC3339),
-			"level":      logLevel(c.Writer.Status()),
-			"method":     c.Request.Method,
-			"path":       c.Request.URL.Path,
-			"status":     c.Writer.Status(),
-			"latency_ms": time.Since(start).Milliseconds(),
-			"client_ip":  c.ClientIP(),
-		}
-		b, _ := json.Marshal(entry)
-		logger.Println(string(b))
-	}
-}
 
-func logLevel(status int) string {
-	if status >= 500 {
-		return "error"
+		level := slog.LevelInfo
+		status := c.Writer.Status()
+		if status >= 500 {
+			level = slog.LevelError
+		} else if status >= 400 {
+			level = slog.LevelWarn
+		}
+
+		id, _ := c.Get(ContextRequestID)
+
+		slog.LogAttrs(c.Request.Context(), level, "request",
+			slog.String("method", c.Request.Method),
+			slog.String("path", c.Request.URL.Path),
+			slog.Int("status", status),
+			slog.Int64("latency_ms", time.Since(start).Milliseconds()),
+			slog.String("client_ip", c.ClientIP()),
+			slog.Any("request_id", id),
+		)
 	}
-	if status >= 400 {
-		return "warn"
-	}
-	return "info"
 }

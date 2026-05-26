@@ -10,18 +10,15 @@ import (
 
 // App represents an application that uses the payment API.
 type App struct {
-	ID        uuid.UUID `gorm:"type:uuid;default:gen_random_uuid();primaryKey"`
-	Name      string    `gorm:"type:varchar(255);not null"`
-	APIKey    string    `gorm:"type:varchar(255);not null;uniqueIndex"`
-	Status    string    `gorm:"type:varchar(20);default:active"`
-
-	// Service provider sub-merchant fields
-	AlipayPID       string `gorm:"type:varchar(64)"`
-	WechatSubMchid  string `gorm:"type:varchar(32)"`
-	WechatSubAppid  string `gorm:"type:varchar(32)"`
+	ID         uuid.UUID `gorm:"type:uuid;default:gen_random_uuid();primaryKey"`
+	MerchantID uuid.UUID `gorm:"type:uuid;not null;index"`
+	Name       string    `gorm:"type:varchar(255);not null"`
+	APIKey     string    `gorm:"type:varchar(255);not null;uniqueIndex"`
+	Status     string    `gorm:"type:varchar(20);default:active"`
 
 	// Callback URL for notifying this app when payment status changes
-	WebhookURL string `gorm:"type:varchar(500)"`
+	WebhookURL    string `gorm:"type:varchar(500)"`
+	WebhookSecret string `gorm:"type:varchar(255)"` // HMAC signing secret for webhook verification
 
 	CreatedAt time.Time
 	UpdatedAt time.Time

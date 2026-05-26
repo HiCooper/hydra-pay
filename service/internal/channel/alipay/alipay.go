@@ -4,16 +4,23 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/url"
 	"strconv"
+	"time"
 
+	sentinel "github.com/alibaba/sentinel-golang/api"
 	"github.com/smartwalle/alipay/v3"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/hydra/pay-service/internal/channel"
 	"github.com/hydra/pay-service/internal/config"
 	"github.com/hydra/pay-service/internal/model"
 	"github.com/hydra/pay-service/pkg/errors"
+	"github.com/hydra/pay-service/pkg/logger"
+	"github.com/hydra/pay-service/pkg/metrics"
 )
 
 // Adapter implements the channel.Adapter interface for Alipay.
@@ -41,12 +48,12 @@ func NewAdapter(cfg *config.AlipayConfig) (*Adapter, error) {
 		if err := client.LoadAliPayPublicKey(cfg.AlipayPublicKey); err != nil {
 			return nil, fmt.Errorf("alipay: failed to load Alipay public key: %w", err)
 		}
-		log.Println("[alipay] public key loaded successfully")
+		logger.Info(context.Background(), "public key loaded successfully")
 	} else {
-		log.Println("[alipay] WARNING: no public key configured — callback verification will fail")
+		logger.Warn(context.Background(), "no public key configured — callback verification will fail")
 	}
 
-	log.Printf("[alipay] adapter initialized (app_id=%s, sandbox=%v)", cfg.AppID, cfg.IsSandbox)
+	logger.Info(context.Background(), "adapter initialized", "app_id", cfg.AppID, "sandbox", cfg.IsSandbox)
 	return &Adapter{client: client, config: cfg}, nil
 }
 
@@ -88,16 +95,37 @@ func (a *Adapter) createQRCodePayment(ctx context.Context, req *channel.CreatePa
 		p.SellerId = req.SubMerchantID
 	}
 
+	ctx, span := otel.Tracer("hydra-pay").Start(ctx, "alipay.precreate",
+		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithAttributes(attribute.String("channel", "alipay"), attribute.String("operation", "precreate")),
+	)
+	defer span.End()
+
+	e, b := sentinel.Entry("alipay")
+	if b != nil {
+		span.SetStatus(codes.Error, "circuit breaker open")
+		return nil, errors.New(errors.ChannelError, "alipay circuit breaker open")
+	}
+	start := time.Now()
 	resp, err := a.client.TradePreCreate(ctx, p)
+	metrics.ChannelAPIRequestDuration.WithLabelValues("alipay", "precreate").Observe(time.Since(start).Seconds())
 	if err != nil {
+		metrics.ChannelAPIRequestTotal.WithLabelValues("alipay", "precreate", "error").Inc()
+		sentinel.TraceError(e, err)
+		e.Exit()
+		span.SetStatus(codes.Error, err.Error())
 		return nil, errors.Wrap(errors.ChannelError, "alipay precreate failed", err)
 	}
 	if resp.Code != alipay.CodeSuccess {
+		sentinel.TraceError(e, fmt.Errorf("alipay precreate: code=%s sub_code=%s", resp.Code, resp.SubCode))
+		e.Exit()
+		span.SetStatus(codes.Error, fmt.Sprintf("code=%s sub_code=%s", resp.Code, resp.SubCode))
 		return nil, errors.New(errors.ChannelError,
 			fmt.Sprintf("alipay precreate error: %s (code=%s, sub_code=%s)", resp.Msg, resp.Code, resp.SubCode))
 	}
+	e.Exit()
 
-	log.Printf("[alipay] precreate success: out_trade_no=%s, qr_code=%s", req.PaymentID, resp.QRCode)
+	logger.Info(ctx, "precreate success", "out_trade_no", req.PaymentID, "qr_code", resp.QRCode)
 
 	return &channel.CreatePaymentResponse{
 		ChannelTxID: "",
@@ -120,12 +148,30 @@ func (a *Adapter) createAppPayment(ctx context.Context, req *channel.CreatePayme
 		p.SellerId = req.SubMerchantID
 	}
 
+	ctx, span := otel.Tracer("hydra-pay").Start(ctx, "alipay.app_pay",
+		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithAttributes(attribute.String("channel", "alipay"), attribute.String("operation", "app_pay")),
+	)
+	defer span.End()
+
+	e, b := sentinel.Entry("alipay")
+	if b != nil {
+		span.SetStatus(codes.Error, "circuit breaker open")
+		return nil, errors.New(errors.ChannelError, "alipay circuit breaker open")
+	}
+	start := time.Now()
 	orderStr, err := a.client.TradeAppPay(p)
+	metrics.ChannelAPIRequestDuration.WithLabelValues("alipay", "app_pay").Observe(time.Since(start).Seconds())
 	if err != nil {
+		metrics.ChannelAPIRequestTotal.WithLabelValues("alipay", "app_pay", "error").Inc()
+		sentinel.TraceError(e, err)
+		e.Exit()
+		span.SetStatus(codes.Error, err.Error())
 		return nil, errors.Wrap(errors.ChannelError, "alipay app pay failed", err)
 	}
+	e.Exit()
 
-	log.Printf("[alipay] app pay success: out_trade_no=%s", req.PaymentID)
+	logger.Info(ctx, "app pay success", "out_trade_no", req.PaymentID)
 
 	return &channel.CreatePaymentResponse{
 		ChannelTxID: "",
@@ -150,12 +196,30 @@ func (a *Adapter) createH5Payment(ctx context.Context, req *channel.CreatePaymen
 		p.SellerId = req.SubMerchantID
 	}
 
+	ctx, span := otel.Tracer("hydra-pay").Start(ctx, "alipay.wap_pay",
+		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithAttributes(attribute.String("channel", "alipay"), attribute.String("operation", "wap_pay")),
+	)
+	defer span.End()
+
+	e, b := sentinel.Entry("alipay")
+	if b != nil {
+		span.SetStatus(codes.Error, "circuit breaker open")
+		return nil, errors.New(errors.ChannelError, "alipay circuit breaker open")
+	}
+	start := time.Now()
 	paymentURL, err := a.client.TradeWapPay(p)
+	metrics.ChannelAPIRequestDuration.WithLabelValues("alipay", "wap_pay").Observe(time.Since(start).Seconds())
 	if err != nil {
+		metrics.ChannelAPIRequestTotal.WithLabelValues("alipay", "wap_pay", "error").Inc()
+		sentinel.TraceError(e, err)
+		e.Exit()
+		span.SetStatus(codes.Error, err.Error())
 		return nil, errors.Wrap(errors.ChannelError, "alipay wap pay failed", err)
 	}
+	e.Exit()
 
-	log.Printf("[alipay] wap pay success: out_trade_no=%s", req.PaymentID)
+	logger.Info(ctx, "wap pay success", "out_trade_no", req.PaymentID)
 
 	return &channel.CreatePaymentResponse{
 		ChannelTxID: "",
@@ -164,18 +228,90 @@ func (a *Adapter) createH5Payment(ctx context.Context, req *channel.CreatePaymen
 	}, nil
 }
 
+func (a *Adapter) Refund(ctx context.Context, req *channel.RefundRequest) (*channel.RefundResponse, error) {
+	p := alipay.TradeRefund{
+		OutTradeNo:   req.TradeNo,
+		RefundAmount: formatAmount(req.RefundAmount),
+		OutRequestNo: req.OutRequestNo,
+	}
+	if req.RefundReason != "" {
+		p.RefundReason = req.RefundReason
+	}
+
+	ctx, span := otel.Tracer("hydra-pay").Start(ctx, "alipay.refund",
+		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithAttributes(attribute.String("channel", "alipay"), attribute.String("operation", "refund")),
+	)
+	defer span.End()
+
+	e, b := sentinel.Entry("alipay")
+	if b != nil {
+		span.SetStatus(codes.Error, "circuit breaker open")
+		return nil, errors.New(errors.ChannelError, "alipay circuit breaker open")
+	}
+	start := time.Now()
+	resp, err := a.client.TradeRefund(ctx, p)
+	metrics.ChannelAPIRequestDuration.WithLabelValues("alipay", "refund").Observe(time.Since(start).Seconds())
+	if err != nil {
+		metrics.ChannelAPIRequestTotal.WithLabelValues("alipay", "refund", "error").Inc()
+		sentinel.TraceError(e, err)
+		e.Exit()
+		span.SetStatus(codes.Error, err.Error())
+		return nil, errors.Wrap(errors.ChannelError, "alipay refund failed", err)
+	}
+	if resp.Code != alipay.CodeSuccess {
+		sentinel.TraceError(e, fmt.Errorf("alipay refund: code=%s sub_code=%s", resp.Code, resp.SubCode))
+		e.Exit()
+		span.SetStatus(codes.Error, fmt.Sprintf("code=%s sub_code=%s", resp.Code, resp.SubCode))
+		return nil, errors.New(errors.ChannelError,
+			fmt.Sprintf("alipay refund error: %s (code=%s, sub_code=%s)", resp.Msg, resp.Code, resp.SubCode))
+	}
+	e.Exit()
+
+	refundFeeCents := yuanToCents(resp.RefundFee)
+
+	logger.Info(ctx, "refund success", "out_trade_no", req.TradeNo, "refund_fee", resp.RefundFee, "trade_no", resp.TradeNo)
+
+	return &channel.RefundResponse{
+		ChannelRefundID: resp.TradeNo,
+		RefundFee:       refundFeeCents,
+		RawResponse:     structToMap(resp),
+	}, nil
+}
+
 func (a *Adapter) GetPaymentStatus(ctx context.Context, channelTxID string) (string, error) {
 	p := alipay.TradeQuery{}
 	p.OutTradeNo = channelTxID
 
+	ctx, span := otel.Tracer("hydra-pay").Start(ctx, "alipay.query",
+		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithAttributes(attribute.String("channel", "alipay"), attribute.String("operation", "query")),
+	)
+	defer span.End()
+
+	e, b := sentinel.Entry("alipay")
+	if b != nil {
+		span.SetStatus(codes.Error, "circuit breaker open")
+		return "", errors.New(errors.ChannelError, "alipay circuit breaker open")
+	}
+	start := time.Now()
 	resp, err := a.client.TradeQuery(ctx, p)
+	metrics.ChannelAPIRequestDuration.WithLabelValues("alipay", "query").Observe(time.Since(start).Seconds())
 	if err != nil {
+		metrics.ChannelAPIRequestTotal.WithLabelValues("alipay", "query", "error").Inc()
+		sentinel.TraceError(e, err)
+		e.Exit()
+		span.SetStatus(codes.Error, err.Error())
 		return "", errors.Wrap(errors.ChannelError, "alipay query failed", err)
 	}
 	if resp.Code != alipay.CodeSuccess {
+		sentinel.TraceError(e, fmt.Errorf("alipay query: code=%s", resp.Code))
+		e.Exit()
+		span.SetStatus(codes.Error, fmt.Sprintf("code=%s", resp.Code))
 		return "", errors.New(errors.ChannelError,
 			fmt.Sprintf("alipay query error: %s (code=%s)", resp.Msg, resp.Code))
 	}
+	e.Exit()
 
 	return mapAlipayTradeStatus(string(resp.TradeStatus)), nil
 }
@@ -203,13 +339,12 @@ func (a *Adapter) VerifyCallback(ctx context.Context, data *channel.CallbackData
 		return nil, errors.New(errors.ValidationError, "missing trade_no in alipay callback")
 	}
 
-	log.Printf("[alipay] callback verified: out_trade_no=%s, trade_no=%s, notify_id=%s, status=%s",
-		outTradeNo, tradeNo, notifyID, tradeStatus)
+	logger.Info(ctx, "callback verified", "out_trade_no", outTradeNo, "trade_no", tradeNo, "notify_id", notifyID, "status", tradeStatus)
 
 	// Double-check by querying Alipay API (anti-replay)
 	status, err := a.GetPaymentStatus(ctx, outTradeNo)
 	if err != nil {
-		log.Printf("[alipay] callback double-check query failed: %v", err)
+		logger.Error(ctx, "callback double-check query failed", "error", err)
 		status = mapAlipayTradeStatus(tradeStatus)
 	}
 
@@ -274,6 +409,11 @@ func mapAlipayTradeStatus(status string) string {
 
 func formatAmount(cents int64) string {
 	return fmt.Sprintf("%.2f", float64(cents)/100.0)
+}
+
+func yuanToCents(yuan string) int64 {
+	f, _ := strconv.ParseFloat(yuan, 64)
+	return int64(f * 100)
 }
 
 func truncate(s string, maxLen int) string {

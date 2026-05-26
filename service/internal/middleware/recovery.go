@@ -1,32 +1,27 @@
 package middleware
 
 import (
-	"encoding/json"
-	"log"
+	"log/slog"
 	"net/http"
-	"os"
 	"runtime/debug"
-	"time"
 
 	"github.com/gin-gonic/gin"
 )
 
 func StructuredRecovery() gin.HandlerFunc {
-	logger := log.New(os.Stdout, "", 0)
 	return func(c *gin.Context) {
 		defer func() {
 			if r := recover(); r != nil {
 				stack := string(debug.Stack())
-				entry := map[string]interface{}{
-					"timestamp": time.Now().Format(time.RFC3339),
-					"level":     "fatal",
-					"error":     r,
-					"stack":     stack,
-					"path":      c.Request.URL.Path,
-					"method":    c.Request.Method,
-				}
-				b, _ := json.Marshal(entry)
-				logger.Println(string(b))
+				id, _ := c.Get(ContextRequestID)
+
+				slog.LogAttrs(c.Request.Context(), slog.LevelError, "panic",
+					slog.Any("error", r),
+					slog.String("stack", stack),
+					slog.String("method", c.Request.Method),
+					slog.String("path", c.Request.URL.Path),
+					slog.Any("request_id", id),
+				)
 				c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
 					"error": "Internal server error",
 				})

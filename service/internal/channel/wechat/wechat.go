@@ -7,8 +7,9 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"log"
+	"time"
 
+	sentinel "github.com/alibaba/sentinel-golang/api"
 	"github.com/wechatpay-apiv3/wechatpay-go/core"
 	"github.com/wechatpay-apiv3/wechatpay-go/core/auth/verifiers"
 	"github.com/wechatpay-apiv3/wechatpay-go/core/downloader"
@@ -16,15 +17,22 @@ import (
 	"github.com/wechatpay-apiv3/wechatpay-go/services/payments/app"
 	"github.com/wechatpay-apiv3/wechatpay-go/services/payments/jsapi"
 	"github.com/wechatpay-apiv3/wechatpay-go/services/payments/native"
+	"github.com/wechatpay-apiv3/wechatpay-go/services/refunddomestic"
 	partnerapp "github.com/wechatpay-apiv3/wechatpay-go/services/partnerpayments/app"
 	partnerjsapi "github.com/wechatpay-apiv3/wechatpay-go/services/partnerpayments/jsapi"
 	partnernative "github.com/wechatpay-apiv3/wechatpay-go/services/partnerpayments/native"
 	"github.com/wechatpay-apiv3/wechatpay-go/utils"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/hydra/pay-service/internal/channel"
 	"github.com/hydra/pay-service/internal/config"
 	"github.com/hydra/pay-service/internal/model"
 	"github.com/hydra/pay-service/pkg/errors"
+	"github.com/hydra/pay-service/pkg/logger"
+	"github.com/hydra/pay-service/pkg/metrics"
 )
 
 // Adapter implements the channel.Adapter interface for WeChat Pay V3.
@@ -70,7 +78,7 @@ func NewAdapter(cfg *config.WechatConfig) (*Adapter, error) {
 		return nil, fmt.Errorf("wechat: failed to create client: %w", err)
 	}
 
-	log.Printf("[wechat] adapter initialized (mch_id=%s, serial=%s)", cfg.MchID, cfg.SerialNo)
+	logger.Info(context.Background(), "adapter initialized", "mch_id", cfg.MchID, "serial", cfg.SerialNo)
 	return &Adapter{
 		client:           client,
 		mchID:            cfg.MchID,
@@ -136,6 +144,18 @@ func (a *Adapter) createNativePayment(ctx context.Context, req *channel.CreatePa
 		return nil, errors.New(errors.ValidationError, "channel_app_id (WeChat AppID) is required for native payment")
 	}
 
+	ctx, span := otel.Tracer("hydra-pay").Start(ctx, "wechat.native_prepay",
+		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithAttributes(attribute.String("channel", "wechat"), attribute.String("operation", "native_prepay")),
+	)
+	defer span.End()
+
+	e, b := sentinel.Entry("wechat")
+	if b != nil {
+		span.SetStatus(codes.Error, "circuit breaker open")
+		return nil, errors.New(errors.ChannelError, "wechat circuit breaker open")
+	}
+	start := time.Now()
 	resp, _, err := a.nativeSvc.Prepay(ctx,
 		native.PrepayRequest{
 			Appid:       core.String(appid),
@@ -149,11 +169,17 @@ func (a *Adapter) createNativePayment(ctx context.Context, req *channel.CreatePa
 			},
 		},
 	)
+	metrics.ChannelAPIRequestDuration.WithLabelValues("wechat", "native_prepay").Observe(time.Since(start).Seconds())
 	if err != nil {
+		metrics.ChannelAPIRequestTotal.WithLabelValues("wechat", "native_prepay", "error").Inc()
+		sentinel.TraceError(e, err)
+		e.Exit()
+		span.SetStatus(codes.Error, err.Error())
 		return nil, errors.Wrap(errors.ChannelError, "wechat native prepay failed", err)
 	}
+	e.Exit()
 
-	log.Printf("[wechat] native prepay success: out_trade_no=%s", req.PaymentID)
+	logger.Info(ctx, "native prepay success", "out_trade_no", req.PaymentID)
 	return &channel.CreatePaymentResponse{
 		ChannelTxID: "",
 		QRCodeURL:   *resp.CodeUrl,
@@ -170,6 +196,18 @@ func (a *Adapter) createJSAPIPayment(ctx context.Context, req *channel.CreatePay
 		return nil, errors.New(errors.ValidationError, "open_id is required for jsapi payment")
 	}
 
+	ctx, span := otel.Tracer("hydra-pay").Start(ctx, "wechat.jsapi_prepay",
+		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithAttributes(attribute.String("channel", "wechat"), attribute.String("operation", "jsapi_prepay")),
+	)
+	defer span.End()
+
+	e, b := sentinel.Entry("wechat")
+	if b != nil {
+		span.SetStatus(codes.Error, "circuit breaker open")
+		return nil, errors.New(errors.ChannelError, "wechat circuit breaker open")
+	}
+	start := time.Now()
 	resp, _, err := a.jsapiSvc.Prepay(ctx,
 		jsapi.PrepayRequest{
 			Appid:       core.String(appid),
@@ -184,11 +222,17 @@ func (a *Adapter) createJSAPIPayment(ctx context.Context, req *channel.CreatePay
 			Payer: &jsapi.Payer{Openid: core.String(req.OpenID)},
 		},
 	)
+	metrics.ChannelAPIRequestDuration.WithLabelValues("wechat", "jsapi_prepay").Observe(time.Since(start).Seconds())
 	if err != nil {
+		metrics.ChannelAPIRequestTotal.WithLabelValues("wechat", "jsapi_prepay", "error").Inc()
+		sentinel.TraceError(e, err)
+		e.Exit()
+		span.SetStatus(codes.Error, err.Error())
 		return nil, errors.Wrap(errors.ChannelError, "wechat jsapi prepay failed", err)
 	}
+	e.Exit()
 
-	log.Printf("[wechat] jsapi prepay success: out_trade_no=%s, prepay_id=%s", req.PaymentID, *resp.PrepayId)
+	logger.Info(ctx, "jsapi prepay success", "out_trade_no", req.PaymentID, "prepay_id", *resp.PrepayId)
 	return &channel.CreatePaymentResponse{
 		ChannelTxID: "",
 		PaymentURL:  *resp.PrepayId,
@@ -202,6 +246,18 @@ func (a *Adapter) createAppPayment(ctx context.Context, req *channel.CreatePayme
 		return nil, errors.New(errors.ValidationError, "channel_app_id is required for app payment")
 	}
 
+	ctx, span := otel.Tracer("hydra-pay").Start(ctx, "wechat.app_prepay",
+		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithAttributes(attribute.String("channel", "wechat"), attribute.String("operation", "app_prepay")),
+	)
+	defer span.End()
+
+	e, b := sentinel.Entry("wechat")
+	if b != nil {
+		span.SetStatus(codes.Error, "circuit breaker open")
+		return nil, errors.New(errors.ChannelError, "wechat circuit breaker open")
+	}
+	start := time.Now()
 	resp, _, err := a.appSvc.Prepay(ctx,
 		app.PrepayRequest{
 			Appid:       core.String(appid),
@@ -212,11 +268,17 @@ func (a *Adapter) createAppPayment(ctx context.Context, req *channel.CreatePayme
 			Amount:      &app.Amount{Currency: core.String(getCurrency(req.Currency)), Total: core.Int64(req.Amount)},
 		},
 	)
+	metrics.ChannelAPIRequestDuration.WithLabelValues("wechat", "app_prepay").Observe(time.Since(start).Seconds())
 	if err != nil {
+		metrics.ChannelAPIRequestTotal.WithLabelValues("wechat", "app_prepay", "error").Inc()
+		sentinel.TraceError(e, err)
+		e.Exit()
+		span.SetStatus(codes.Error, err.Error())
 		return nil, errors.Wrap(errors.ChannelError, "wechat app prepay failed", err)
 	}
+	e.Exit()
 
-	log.Printf("[wechat] app prepay success: out_trade_no=%s, prepay_id=%s", req.PaymentID, *resp.PrepayId)
+	logger.Info(ctx, "app prepay success", "out_trade_no", req.PaymentID, "prepay_id", *resp.PrepayId)
 	return &channel.CreatePaymentResponse{
 		ChannelTxID: "",
 		PaymentURL:  *resp.PrepayId,
@@ -231,6 +293,18 @@ func (a *Adapter) createPartnerNativePayment(ctx context.Context, req *channel.C
 		return nil, errors.New(errors.ValidationError, "channel_app_id (sp_appid) is required for partner native payment")
 	}
 
+	ctx, span := otel.Tracer("hydra-pay").Start(ctx, "wechat.partner_native_prepay",
+		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithAttributes(attribute.String("channel", "wechat"), attribute.String("operation", "partner_native_prepay")),
+	)
+	defer span.End()
+
+	e, b := sentinel.Entry("wechat")
+	if b != nil {
+		span.SetStatus(codes.Error, "circuit breaker open")
+		return nil, errors.New(errors.ChannelError, "wechat circuit breaker open")
+	}
+	start := time.Now()
 	resp, _, err := a.partnerNativeSvc.Prepay(ctx,
 		partnernative.PrepayRequest{
 			SpAppid:     core.String(req.ChannelAppID),
@@ -246,11 +320,17 @@ func (a *Adapter) createPartnerNativePayment(ctx context.Context, req *channel.C
 			},
 		},
 	)
+	metrics.ChannelAPIRequestDuration.WithLabelValues("wechat", "partner_native_prepay").Observe(time.Since(start).Seconds())
 	if err != nil {
+		metrics.ChannelAPIRequestTotal.WithLabelValues("wechat", "partner_native_prepay", "error").Inc()
+		sentinel.TraceError(e, err)
+		e.Exit()
+		span.SetStatus(codes.Error, err.Error())
 		return nil, errors.Wrap(errors.ChannelError, "wechat partner native prepay failed", err)
 	}
+	e.Exit()
 
-	log.Printf("[wechat] partner native prepay success: out_trade_no=%s, sub_mchid=%s", req.PaymentID, req.SubMerchantID)
+	logger.Info(ctx, "partner native prepay success", "out_trade_no", req.PaymentID, "sub_mchid", req.SubMerchantID)
 	return &channel.CreatePaymentResponse{
 		ChannelTxID: "",
 		QRCodeURL:   *resp.CodeUrl,
@@ -266,6 +346,18 @@ func (a *Adapter) createPartnerJSAPIPayment(ctx context.Context, req *channel.Cr
 		return nil, errors.New(errors.ValidationError, "open_id is required for jsapi payment")
 	}
 
+	ctx, span := otel.Tracer("hydra-pay").Start(ctx, "wechat.partner_jsapi_prepay",
+		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithAttributes(attribute.String("channel", "wechat"), attribute.String("operation", "partner_jsapi_prepay")),
+	)
+	defer span.End()
+
+	e, b := sentinel.Entry("wechat")
+	if b != nil {
+		span.SetStatus(codes.Error, "circuit breaker open")
+		return nil, errors.New(errors.ChannelError, "wechat circuit breaker open")
+	}
+	start := time.Now()
 	resp, _, err := a.partnerJsapiSvc.Prepay(ctx,
 		partnerjsapi.PrepayRequest{
 			SpAppid:     core.String(req.ChannelAppID),
@@ -282,11 +374,17 @@ func (a *Adapter) createPartnerJSAPIPayment(ctx context.Context, req *channel.Cr
 			Payer: &partnerjsapi.Payer{SubOpenid: core.String(req.OpenID)},
 		},
 	)
+	metrics.ChannelAPIRequestDuration.WithLabelValues("wechat", "partner_jsapi_prepay").Observe(time.Since(start).Seconds())
 	if err != nil {
+		metrics.ChannelAPIRequestTotal.WithLabelValues("wechat", "partner_jsapi_prepay", "error").Inc()
+		sentinel.TraceError(e, err)
+		e.Exit()
+		span.SetStatus(codes.Error, err.Error())
 		return nil, errors.Wrap(errors.ChannelError, "wechat partner jsapi prepay failed", err)
 	}
+	e.Exit()
 
-	log.Printf("[wechat] partner jsapi prepay success: out_trade_no=%s, sub_mchid=%s", req.PaymentID, req.SubMerchantID)
+	logger.Info(ctx, "partner jsapi prepay success", "out_trade_no", req.PaymentID, "sub_mchid", req.SubMerchantID)
 	return &channel.CreatePaymentResponse{
 		ChannelTxID: "",
 		PaymentURL:  *resp.PrepayId,
@@ -299,6 +397,18 @@ func (a *Adapter) createPartnerAppPayment(ctx context.Context, req *channel.Crea
 		return nil, errors.New(errors.ValidationError, "channel_app_id (sp_appid) is required for partner app payment")
 	}
 
+	ctx, span := otel.Tracer("hydra-pay").Start(ctx, "wechat.partner_app_prepay",
+		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithAttributes(attribute.String("channel", "wechat"), attribute.String("operation", "partner_app_prepay")),
+	)
+	defer span.End()
+
+	e, b := sentinel.Entry("wechat")
+	if b != nil {
+		span.SetStatus(codes.Error, "circuit breaker open")
+		return nil, errors.New(errors.ChannelError, "wechat circuit breaker open")
+	}
+	start := time.Now()
 	resp, _, err := a.partnerAppSvc.Prepay(ctx,
 		partnerapp.PrepayRequest{
 			SpAppid:     core.String(req.ChannelAppID),
@@ -311,11 +421,17 @@ func (a *Adapter) createPartnerAppPayment(ctx context.Context, req *channel.Crea
 			Amount:      &partnerapp.Amount{Currency: core.String(getCurrency(req.Currency)), Total: core.Int64(req.Amount)},
 		},
 	)
+	metrics.ChannelAPIRequestDuration.WithLabelValues("wechat", "partner_app_prepay").Observe(time.Since(start).Seconds())
 	if err != nil {
+		metrics.ChannelAPIRequestTotal.WithLabelValues("wechat", "partner_app_prepay", "error").Inc()
+		sentinel.TraceError(e, err)
+		e.Exit()
+		span.SetStatus(codes.Error, err.Error())
 		return nil, errors.Wrap(errors.ChannelError, "wechat partner app prepay failed", err)
 	}
+	e.Exit()
 
-	log.Printf("[wechat] partner app prepay success: out_trade_no=%s, sub_mchid=%s", req.PaymentID, req.SubMerchantID)
+	logger.Info(ctx, "partner app prepay success", "out_trade_no", req.PaymentID, "sub_mchid", req.SubMerchantID)
 	return &channel.CreatePaymentResponse{
 		ChannelTxID: "",
 		PaymentURL:  *resp.PrepayId,
@@ -323,17 +439,91 @@ func (a *Adapter) createPartnerAppPayment(ctx context.Context, req *channel.Crea
 	}, nil
 }
 
+// Refund creates a domestic refund via the WeChat Pay V3 refunds API.
+func (a *Adapter) Refund(ctx context.Context, req *channel.RefundRequest) (*channel.RefundResponse, error) {
+	svc := refunddomestic.RefundsApiService{Client: a.client}
+	createReq := refunddomestic.CreateRequest{
+		OutTradeNo:  core.String(req.TradeNo),
+		OutRefundNo: core.String(req.OutRequestNo),
+		Amount: &refunddomestic.AmountReq{
+			Refund:   core.Int64(req.RefundAmount),
+			Total:    core.Int64(req.TotalAmount),
+			Currency: core.String("CNY"),
+		},
+	}
+	if req.RefundReason != "" {
+		createReq.Reason = core.String(req.RefundReason)
+	}
+	if req.SubMerchantID != "" {
+		createReq.SubMchid = core.String(req.SubMerchantID)
+	}
+
+	ctx, span := otel.Tracer("hydra-pay").Start(ctx, "wechat.refund",
+		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithAttributes(attribute.String("channel", "wechat"), attribute.String("operation", "refund")),
+	)
+	defer span.End()
+
+	e, b := sentinel.Entry("wechat")
+	if b != nil {
+		span.SetStatus(codes.Error, "circuit breaker open")
+		return nil, errors.New(errors.ChannelError, "wechat circuit breaker open")
+	}
+	start := time.Now()
+	resp, _, err := svc.Create(ctx, createReq)
+	metrics.ChannelAPIRequestDuration.WithLabelValues("wechat", "refund").Observe(time.Since(start).Seconds())
+	if err != nil {
+		metrics.ChannelAPIRequestTotal.WithLabelValues("wechat", "refund", "error").Inc()
+		sentinel.TraceError(e, err)
+		e.Exit()
+		span.SetStatus(codes.Error, err.Error())
+		return nil, errors.Wrap(errors.ChannelError, "wechat refund failed", err)
+	}
+	e.Exit()
+
+	refundFee := int64(0)
+	if resp.Amount != nil && resp.Amount.Refund != nil {
+		refundFee = *resp.Amount.Refund
+	}
+
+	logger.Info(ctx, "refund success", "out_trade_no", req.TradeNo, "refund_id", *resp.RefundId, "status", string(*resp.Status))
+
+	return &channel.RefundResponse{
+		ChannelRefundID: *resp.RefundId,
+		RefundFee:       refundFee,
+		RawResponse:     structToMap(resp),
+	}, nil
+}
+
 // GetPaymentStatus queries the order status by out_trade_no.
 func (a *Adapter) GetPaymentStatus(ctx context.Context, channelTxID string) (string, error) {
+	ctx, span := otel.Tracer("hydra-pay").Start(ctx, "wechat.query_order",
+		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithAttributes(attribute.String("channel", "wechat"), attribute.String("operation", "query_order")),
+	)
+	defer span.End()
+
+	e, b := sentinel.Entry("wechat")
+	if b != nil {
+		span.SetStatus(codes.Error, "circuit breaker open")
+		return "", errors.New(errors.ChannelError, "wechat circuit breaker open")
+	}
+	start := time.Now()
 	resp, _, err := a.nativeSvc.QueryOrderByOutTradeNo(ctx,
 		native.QueryOrderByOutTradeNoRequest{
 			OutTradeNo: core.String(channelTxID),
 			Mchid:      core.String(a.mchID),
 		},
 	)
+	metrics.ChannelAPIRequestDuration.WithLabelValues("wechat", "query_order").Observe(time.Since(start).Seconds())
 	if err != nil {
+		metrics.ChannelAPIRequestTotal.WithLabelValues("wechat", "query_order", "error").Inc()
+		sentinel.TraceError(e, err)
+		e.Exit()
+		span.SetStatus(codes.Error, err.Error())
 		return "", errors.Wrap(errors.ChannelError, "wechat query order failed", err)
 	}
+	e.Exit()
 
 	return mapWechatTradeState(*resp.TradeState), nil
 }
@@ -371,7 +561,7 @@ func (a *Adapter) VerifyCallback(ctx context.Context, data *channel.CallbackData
 	}
 
 	if notification.EventType != "TRANSACTION.SUCCESS" {
-		log.Printf("[wechat] ignoring callback event: %s (id=%s)", notification.EventType, notification.ID)
+		logger.Info(ctx, "ignoring callback event", "event_type", notification.EventType, "id", notification.ID)
 		return nil, fmt.Errorf("wechat: unhandled event type %s", notification.EventType)
 	}
 
@@ -414,8 +604,7 @@ func (a *Adapter) VerifyCallback(ctx context.Context, data *channel.CallbackData
 		return nil, errors.New(errors.ValidationError, "failed to parse wechat transaction from callback")
 	}
 
-	log.Printf("[wechat] callback verified: out_trade_no=%s, transaction_id=%s, state=%s, sub_mchid=%s",
-		transaction.OutTradeNo, transaction.TransactionID, transaction.TradeState, transaction.SubMchid)
+	logger.Info(ctx, "callback verified", "out_trade_no", transaction.OutTradeNo, "transaction_id", transaction.TransactionID, "state", transaction.TradeState, "sub_mchid", transaction.SubMchid)
 
 	cb := &model.WeChatCallback{
 		NotificationID:      notification.ID,

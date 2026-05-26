@@ -79,6 +79,17 @@ func (r *PaymentRepository) MarkPaid(id uuid.UUID, externalID string) error {
 		}).Error
 }
 
+func (r *PaymentRepository) UpdateChannel(id uuid.UUID, channel string) error {
+	return r.db.Model(&model.Payment{}).Where("id = ?", id).Update("channel", channel).Error
+}
+
+func (r *PaymentRepository) UpdateChannelURLs(id uuid.UUID, paymentURL, qrCodeURL string) error {
+	return r.db.Model(&model.Payment{}).Where("id = ?", id).Updates(map[string]interface{}{
+		"payment_url": paymentURL,
+		"qr_code_url": qrCodeURL,
+	}).Error
+}
+
 // MarkPaidIfPending atomically marks payment as paid only if currently pending or processing.
 // Returns true if the update was applied, false if already in a terminal state.
 func (r *PaymentRepository) MarkPaidIfPending(id uuid.UUID, externalID string) (bool, error) {

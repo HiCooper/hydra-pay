@@ -62,28 +62,35 @@ func (h *Handler) GetApp(c *gin.Context) {
 
 func (h *Handler) CreateApp(c *gin.Context) {
 	var req struct {
-		Name           string `json:"name"`
-		AlipayPID      string `json:"alipay_pid"`
-		WechatSubMchid string `json:"wechat_sub_mchid"`
-		WechatSubAppid string `json:"wechat_sub_appid"`
-		WebhookURL    string `json:"webhook_url"`
+		MerchantID string `json:"merchant_id"`
+		Name       string `json:"name"`
+		WebhookURL string `json:"webhook_url"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.Error(c, http.StatusBadRequest, "INVALID_BODY", err.Error())
 		return
 	}
-	if req.Name == "" {
-		response.Error(c, http.StatusBadRequest, "INVALID_BODY", "name is required")
+	if req.Name == "" || req.MerchantID == "" {
+		response.Error(c, http.StatusBadRequest, "INVALID_BODY", "name and merchant_id are required")
+		return
+	}
+	mid, err := uuid.Parse(req.MerchantID)
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, "INVALID_ID", "invalid merchant_id")
+		return
+	}
+	// Verify merchant exists
+	var merchant model.Merchant
+	if err := h.db.First(&merchant, "id = ?", mid).Error; err != nil {
+		response.Error(c, http.StatusNotFound, "NOT_FOUND", "merchant not found")
 		return
 	}
 	app := model.App{
-		Name:           req.Name,
-		APIKey:         model.GenerateAPIKey(),
-		Status:         "active",
-		AlipayPID:      req.AlipayPID,
-		WechatSubMchid: req.WechatSubMchid,
-		WechatSubAppid: req.WechatSubAppid,
-		WebhookURL:    req.WebhookURL,
+		MerchantID: mid,
+		Name:       req.Name,
+		APIKey:     model.GenerateAPIKey(),
+		Status:     "active",
+		WebhookURL: req.WebhookURL,
 	}
 	if err := h.db.Create(&app).Error; err != nil {
 		response.Error(c, http.StatusInternalServerError, "DB_ERROR", err.Error())
@@ -99,12 +106,9 @@ func (h *Handler) UpdateApp(c *gin.Context) {
 		return
 	}
 	var req struct {
-		Name           *string `json:"name"`
-		Status         *string `json:"status"`
-		AlipayPID      *string `json:"alipay_pid"`
-		WechatSubMchid *string `json:"wechat_sub_mchid"`
-		WechatSubAppid *string `json:"wechat_sub_appid"`
-		WebhookURL    *string `json:"webhook_url"`
+		Name       *string `json:"name"`
+		Status     *string `json:"status"`
+		WebhookURL *string `json:"webhook_url"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.Error(c, http.StatusBadRequest, "INVALID_BODY", err.Error())
@@ -116,15 +120,6 @@ func (h *Handler) UpdateApp(c *gin.Context) {
 	}
 	if req.Status != nil {
 		updates["status"] = *req.Status
-	}
-	if req.AlipayPID != nil {
-		updates["alipay_pid"] = *req.AlipayPID
-	}
-	if req.WechatSubMchid != nil {
-		updates["wechat_sub_mchid"] = *req.WechatSubMchid
-	}
-	if req.WechatSubAppid != nil {
-		updates["wechat_sub_appid"] = *req.WechatSubAppid
 	}
 	if req.WebhookURL != nil {
 		updates["webhook_url"] = *req.WebhookURL
@@ -138,118 +133,18 @@ func (h *Handler) UpdateApp(c *gin.Context) {
 	response.Success(c, app)
 }
 
-// ---- Onboarding ----
-
-func (h *Handler) InitiateOnboarding(c *gin.Context) {
-	appID, err := uuid.Parse(c.Param("id"))
-	if err != nil {
-		response.Error(c, http.StatusBadRequest, "INVALID_ID", "invalid app id")
-		return
-	}
-
-	var app model.App
-	if err := h.db.First(&app, "id = ?", appID).Error; err != nil {
-		response.Error(c, http.StatusNotFound, "NOT_FOUND", "app not found")
-		return
-	}
-
-	var req struct {
-		Channel      string `json:"channel"`
-		MerchantName string `json:"merchant_name"`
-		ContactName  string `json:"contact_name"`
-		ContactPhone string `json:"contact_phone"`
-		ContactEmail string `json:"contact_email"`
-	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Error(c, http.StatusBadRequest, "INVALID_BODY", err.Error())
-		return
-	}
-	if req.Channel == "" || req.MerchantName == "" || req.ContactName == "" || req.ContactPhone == "" {
-		response.Error(c, http.StatusBadRequest, "INVALID_BODY", "channel, merchant_name, contact_name, contact_phone are required")
-		return
-	}
-	if req.Channel != model.ChannelAlipay && req.Channel != model.ChannelWechat {
-		response.Error(c, http.StatusBadRequest, "INVALID_CHANNEL", "channel must be 'alipay' or 'wechat'")
-		return
-	}
-
-	// Check no active onboarding already exists for this app+channel
-	existing, _ := h.onboardingRepo.GetByAppID(appID)
-	for _, ob := range existing {
-		if ob.Channel == req.Channel && ob.Status != model.OnboardingStatusApproved && ob.Status != model.OnboardingStatusRejected {
-			response.Error(c, http.StatusConflict, "DUPLICATE", "an active onboarding already exists for this app and channel")
-			return
-		}
-	}
-
-	adapter, err := service.GetAdapter(req.Channel, h.payService.GetConfig())
-	if err != nil {
-		response.Error(c, http.StatusInternalServerError, "CHANNEL_ERROR", err.Error())
-		return
-	}
-
-	provider, ok := adapter.(channel.OnboardingProvider)
-	if !ok {
-		response.Error(c, http.StatusBadRequest, "NOT_SUPPORTED", "channel does not support onboarding: "+req.Channel)
-		return
-	}
-
-	outReqNo := "ONB-" + uuid.New().String()[:8]
-	notifyURL := h.getOnboardingNotifyURL(req.Channel)
-
-	chReq := &channel.OnboardingRequest{
-		OutRequestNo: outReqNo,
-		MerchantName: req.MerchantName,
-		ContactName:  req.ContactName,
-		ContactPhone: req.ContactPhone,
-		ContactEmail: req.ContactEmail,
-		NotifyURL:    notifyURL,
-	}
-
-	ob := &model.MerchantOnboarding{
-		AppID:        appID,
-		Channel:      req.Channel,
-		OutRequestNo: outReqNo,
-		Status:       model.OnboardingStatusPending,
-	}
-	if err := h.onboardingRepo.Create(ob); err != nil {
-		response.Error(c, http.StatusInternalServerError, "DB_ERROR", err.Error())
-		return
-	}
-
-	chResp, err := provider.SubmitOnboarding(c.Request.Context(), chReq)
-	if err != nil {
-		h.onboardingRepo.MarkRejected(ob.ID, err.Error())
-		response.Error(c, http.StatusBadGateway, "ONBOARDING_FAILED", err.Error())
-		return
-	}
-
-	updates := map[string]interface{}{
-		"status":         model.OnboardingStatusSubmitted,
-		"applyment_id":   chResp.ApplymentID,
-		"sign_url":       chResp.SignURL,
-		"qr_code_url":    chResp.QRCodeURL,
-	}
-	h.db.Model(&model.MerchantOnboarding{}).Where("id = ?", ob.ID).Updates(updates)
-
-	ob.Status = model.OnboardingStatusSubmitted
-	ob.ApplymentID = chResp.ApplymentID
-	ob.SignURL = chResp.SignURL
-	ob.QrCodeURL = chResp.QRCodeURL
-
-	response.Success(c, ob)
-}
+// ---- Onboarding (read-only for admin) ----
 
 func (h *Handler) GetOnboardingStatus(c *gin.Context) {
-	appID, err := uuid.Parse(c.Param("id"))
+	merchantID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
-		response.Error(c, http.StatusBadRequest, "INVALID_ID", "invalid app id")
+		response.Error(c, http.StatusBadRequest, "INVALID_ID", "invalid merchant id")
 		return
 	}
 
-	records, err := h.onboardingRepo.GetByAppID(appID)
+	records, err := h.onboardingRepo.GetByMerchantID(merchantID)
 	if err != nil || len(records) == 0 {
-		response.Error(c, http.StatusNotFound, "NOT_FOUND", "no onboarding record found for this app")
+		response.Error(c, http.StatusNotFound, "NOT_FOUND", "no onboarding record found")
 		return
 	}
 
@@ -275,8 +170,7 @@ func (h *Handler) GetOnboardingStatus(c *gin.Context) {
 						h.onboardingRepo.MarkApproved(ob.ID, statusResp.SubMerchantID)
 						ob.Status = model.OnboardingStatusApproved
 						ob.SubMerchantID = statusResp.SubMerchantID
-						// Auto-update App
-						h.autoUpdateAppMerchantID(appID, ob.Channel, statusResp.SubMerchantID)
+						h.autoUpdateMerchant(merchantID, ob.Channel, statusResp.SubMerchantID)
 					}
 				}
 			}
@@ -303,7 +197,7 @@ func (h *Handler) ListOnboardings(c *gin.Context) {
 	}
 
 	records, total, err := h.onboardingRepo.List(
-		c.Query("app_id"),
+		c.Query("merchant_id"),
 		c.Query("channel"),
 		c.Query("status"),
 		page, pageSize,
@@ -321,17 +215,7 @@ func (h *Handler) ListOnboardings(c *gin.Context) {
 	})
 }
 
-func (h *Handler) getOnboardingNotifyURL(channel string) string {
-	switch channel {
-	case model.ChannelAlipay:
-		return h.payService.GetConfig().Alipay.OnboardingNotifyURL
-	case model.ChannelWechat:
-		return h.payService.GetConfig().Wechat.OnboardingNotifyURL
-	}
-	return ""
-}
-
-func (h *Handler) autoUpdateAppMerchantID(appID uuid.UUID, channel, subMerchantID string) {
+func (h *Handler) autoUpdateMerchant(merchantID uuid.UUID, channel, subMerchantID string) {
 	if subMerchantID == "" {
 		return
 	}
@@ -344,7 +228,124 @@ func (h *Handler) autoUpdateAppMerchantID(appID uuid.UUID, channel, subMerchantI
 	default:
 		return
 	}
-	h.db.Model(&model.App{}).Where("id = ?", appID).Update(field, subMerchantID)
+	h.db.Model(&model.Merchant{}).Where("id = ?", merchantID).Update(field, subMerchantID)
+}
+
+// ---- Merchants ----
+
+func (h *Handler) ListMerchants(c *gin.Context) {
+	var merchants []model.Merchant
+	h.db.Order("created_at DESC").Find(&merchants)
+	response.Success(c, merchants)
+}
+
+func (h *Handler) CreateMerchant(c *gin.Context) {
+	var req struct {
+		Name         string `json:"name"`
+		Email        string `json:"email"`
+		Password     string `json:"password"`
+		ContactName  string `json:"contact_name"`
+		ContactPhone string `json:"contact_phone"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, http.StatusBadRequest, "INVALID_BODY", err.Error())
+		return
+	}
+	if req.Name == "" || req.Email == "" || req.Password == "" {
+		response.Error(c, http.StatusBadRequest, "INVALID_BODY", "name, email, password are required")
+		return
+	}
+
+	m := model.Merchant{
+		Name:         req.Name,
+		Email:        req.Email,
+		ContactName:  req.ContactName,
+		ContactPhone: req.ContactPhone,
+		Status:       "active",
+	}
+	if err := m.SetPassword(req.Password); err != nil {
+		response.Error(c, http.StatusInternalServerError, "INTERNAL", "failed to hash password")
+		return
+	}
+
+	if err := h.db.Create(&m).Error; err != nil {
+		response.Error(c, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		return
+	}
+	// Don't return password hash
+	m.PasswordHash = ""
+	response.Success(c, m)
+}
+
+func (h *Handler) GetMerchant(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, "INVALID_ID", "invalid merchant id")
+		return
+	}
+	var m model.Merchant
+	if err := h.db.First(&m, "id = ?", id).Error; err != nil {
+		response.Error(c, http.StatusNotFound, "NOT_FOUND", "merchant not found")
+		return
+	}
+	m.PasswordHash = ""
+	response.Success(c, m)
+}
+
+func (h *Handler) UpdateMerchant(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, "INVALID_ID", "invalid merchant id")
+		return
+	}
+
+	var req struct {
+		Name         *string `json:"name"`
+		Email        *string `json:"email"`
+		Password     *string `json:"password"`
+		ContactName  *string `json:"contact_name"`
+		ContactPhone *string `json:"contact_phone"`
+		Status       *string `json:"status"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, http.StatusBadRequest, "INVALID_BODY", err.Error())
+		return
+	}
+
+	updates := map[string]interface{}{}
+	if req.Name != nil {
+		updates["name"] = *req.Name
+	}
+	if req.Email != nil {
+		updates["email"] = *req.Email
+	}
+	if req.ContactName != nil {
+		updates["contact_name"] = *req.ContactName
+	}
+	if req.ContactPhone != nil {
+		updates["contact_phone"] = *req.ContactPhone
+	}
+	if req.Status != nil {
+		updates["status"] = *req.Status
+	}
+	if req.Password != nil {
+		var m model.Merchant
+		if err := h.db.First(&m, "id = ?", id).Error; err != nil {
+			response.Error(c, http.StatusNotFound, "NOT_FOUND", "merchant not found")
+			return
+		}
+		if err := m.SetPassword(*req.Password); err != nil {
+			response.Error(c, http.StatusInternalServerError, "INTERNAL", "failed to hash password")
+			return
+		}
+		updates["password_hash"] = m.PasswordHash
+	}
+
+	if err := h.db.Model(&model.Merchant{}).Where("id = ?", id).Updates(updates).Error; err != nil {
+		response.Error(c, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		return
+	}
+	response.Success(c, gin.H{"updated": true})
 }
 
 // ---- Orders ----

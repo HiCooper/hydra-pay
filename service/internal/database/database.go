@@ -1,19 +1,21 @@
 package database
 
 import (
-	"log"
+	"context"
+	"time"
 
 	"github.com/hydra/pay-service/internal/config"
 	"github.com/hydra/pay-service/internal/model"
+	"github.com/hydra/pay-service/pkg/logger"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
+	gormlogger "gorm.io/gorm/logger"
 )
 
 func Connect(cfg *config.Config) (*gorm.DB, error) {
 	db, err := gorm.Open(postgres.Open(cfg.Database.DSN), &gorm.Config{
 		PrepareStmt: true,
-		Logger:      logger.Default.LogMode(logger.Warn),
+		Logger:      gormlogger.Default.LogMode(gormlogger.Warn),
 	})
 	if err != nil {
 		return nil, err
@@ -55,7 +57,28 @@ func Connect(cfg *config.Config) (*gorm.DB, error) {
 	if err := db.AutoMigrate(&model.MerchantOnboarding{}); err != nil {
 		return nil, err
 	}
+	if err := db.AutoMigrate(&model.Merchant{}); err != nil {
+		return nil, err
+	}
 
-	log.Println("[db] connected and migrated")
+	sqlDB, err := db.DB()
+	if err != nil {
+		return nil, err
+	}
+
+	sqlDB.SetMaxOpenConns(cfg.Database.MaxOpenConns)
+	sqlDB.SetMaxIdleConns(cfg.Database.MaxIdleConns)
+
+	if lifetime, err := time.ParseDuration(cfg.Database.ConnMaxLifetime); err == nil {
+		sqlDB.SetConnMaxLifetime(lifetime)
+	}
+	if idleTime, err := time.ParseDuration(cfg.Database.ConnMaxIdleTime); err == nil {
+		sqlDB.SetConnMaxIdleTime(idleTime)
+	}
+
+	logger.Info(context.Background(), "database connected and migrated",
+		"max_open_conns", cfg.Database.MaxOpenConns,
+		"max_idle_conns", cfg.Database.MaxIdleConns,
+	)
 	return db, nil
 }

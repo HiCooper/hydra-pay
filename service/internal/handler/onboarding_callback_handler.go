@@ -2,7 +2,7 @@ package handler
 
 import (
 	"io"
-	"log"
+	"context"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -15,6 +15,7 @@ import (
 	"github.com/hydra/pay-service/internal/repository"
 	"github.com/hydra/pay-service/internal/service"
 	"github.com/hydra/pay-service/pkg/errors"
+	"github.com/hydra/pay-service/pkg/logger"
 	"github.com/hydra/pay-service/pkg/response"
 )
 
@@ -60,7 +61,7 @@ func (h *OnboardingCallbackHandler) Callback(c *gin.Context) {
 
 	adapter, err := service.GetAdapter(channelName, h.cfg)
 	if err != nil {
-		log.Printf("[onboarding] unsupported channel: %s", channelName)
+		logger.Warn(c.Request.Context(), "unsupported channel", "channel", channelName)
 		response.Error(c, http.StatusBadRequest, errors.ChannelError, "unsupported channel: "+channelName)
 		return
 	}
@@ -78,14 +79,14 @@ func (h *OnboardingCallbackHandler) Callback(c *gin.Context) {
 
 	result, err := provider.VerifyOnboardingCallback(c.Request.Context(), callbackData)
 	if err != nil {
-		log.Printf("[onboarding] callback verification failed: channel=%s, err=%v", channelName, err)
+		logger.Error(c.Request.Context(), "callback verification failed", "channel", channelName, "error", err)
 		response.Error(c, http.StatusBadRequest, errors.InvalidSignature, err.Error())
 		return
 	}
 
 	ob, err := h.onboardingRepo.GetByApplymentID(channelName, result.ApplymentID)
 	if err != nil {
-		log.Printf("[onboarding] onboarding record not found: channel=%s, applyment_id=%s", channelName, result.ApplymentID)
+		logger.Error(c.Request.Context(), "onboarding record not found", "channel", channelName, "applyment_id", result.ApplymentID)
 		response.Error(c, http.StatusNotFound, errors.NotFound, "onboarding record not found")
 		return
 	}
@@ -93,17 +94,16 @@ func (h *OnboardingCallbackHandler) Callback(c *gin.Context) {
 	switch result.Status {
 	case model.OnboardingStatusApproved:
 		if err := h.onboardingRepo.MarkApproved(ob.ID, result.SubMerchantID); err != nil {
-			log.Printf("[onboarding] failed to mark approved: %v", err)
+			logger.Error(c.Request.Context(), "failed to mark approved", "error", err)
 		}
-		// Auto-update the App with the sub_merchant_id
-		h.autoUpdateApp(ob.AppID, channelName, result.SubMerchantID)
+		h.autoUpdateMerchant(ob.MerchantID, channelName, result.SubMerchantID)
 	case model.OnboardingStatusRejected:
 		if err := h.onboardingRepo.MarkRejected(ob.ID, result.RejectReason); err != nil {
-			log.Printf("[onboarding] failed to mark rejected: %v", err)
+			logger.Error(c.Request.Context(), "failed to mark rejected", "error", err)
 		}
 	default:
 		if err := h.onboardingRepo.UpdateStatus(ob.ID, result.Status); err != nil {
-			log.Printf("[onboarding] failed to update status: %v", err)
+			logger.Error(c.Request.Context(), "failed to update status", "error", err)
 		}
 	}
 
@@ -115,7 +115,7 @@ func (h *OnboardingCallbackHandler) Callback(c *gin.Context) {
 	}
 }
 
-func (h *OnboardingCallbackHandler) autoUpdateApp(appID uuid.UUID, channel, subMerchantID string) {
+func (h *OnboardingCallbackHandler) autoUpdateMerchant(merchantID uuid.UUID, channel, subMerchantID string) {
 	if subMerchantID == "" {
 		return
 	}
@@ -130,9 +130,9 @@ func (h *OnboardingCallbackHandler) autoUpdateApp(appID uuid.UUID, channel, subM
 		return
 	}
 
-	if err := h.db.Model(&model.App{}).Where("id = ?", appID).Update(field, subMerchantID).Error; err != nil {
-		log.Printf("[onboarding] failed to auto-update app %s field %s: %v", appID, field, err)
+	if err := h.db.Model(&model.Merchant{}).Where("id = ?", merchantID).Update(field, subMerchantID).Error; err != nil {
+		logger.Error(context.Background(), "failed to auto-update merchant", "merchant_id", merchantID, "field", field, "error", err)
 	} else {
-		log.Printf("[onboarding] auto-updated app %s %s = %s", appID, field, subMerchantID)
+		logger.Info(context.Background(), "auto-updated merchant", "merchant_id", merchantID, "field", field, "value", subMerchantID)
 	}
 }

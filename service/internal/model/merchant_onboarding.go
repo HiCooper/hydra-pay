@@ -17,7 +17,7 @@ const (
 
 type MerchantOnboarding struct {
 	ID          uuid.UUID      `gorm:"type:uuid;default:gen_random_uuid();primaryKey"`
-	AppID       uuid.UUID      `gorm:"type:uuid;not null;index"`
+	MerchantID  uuid.UUID      `gorm:"type:uuid;not null;index"`
 	Channel     string         `gorm:"type:varchar(32);not null"`
 	OutRequestNo string        `gorm:"type:varchar(64);uniqueIndex"`
 	ApplymentID  string        `gorm:"type:varchar(64);index"`

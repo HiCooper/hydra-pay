@@ -5,13 +5,20 @@ import { api } from '../api/index.js'
 
 export default function Apps() {
   const [apps, setApps] = useState([])
+  const [merchants, setMerchants] = useState([])
   const [loading, setLoading] = useState(true)
   const [openCreate, setOpenCreate] = useState(false)
   const [editing, setEditing] = useState(null)
   const [form] = Form.useForm()
   const [editForm] = Form.useForm()
 
-  async function load() { setLoading(true); setApps(await api.listApps()); setLoading(false) }
+  async function load() {
+    setLoading(true)
+    const [a, m] = await Promise.all([api.listApps(), api.listMerchants()])
+    setApps(a)
+    setMerchants(m)
+    setLoading(false)
+  }
   useEffect(() => { load() }, [])
 
   async function handleCreate(values) {
@@ -23,7 +30,11 @@ export default function Apps() {
   }
 
   async function handleEdit(values) {
-    await api.updateApp(editing.ID, values)
+    const payload = {}
+    if (values.Name !== undefined) payload.name = values.Name
+    if (values.Status !== undefined) payload.status = values.Status
+    if (values.WebhookURL !== undefined) payload.webhook_url = values.WebhookURL
+    await api.updateApp(editing.ID, payload)
     setEditing(null)
     message.success('已保存')
     load()
@@ -34,8 +45,12 @@ export default function Apps() {
     message.success('已复制')
   }
 
+  const merchantMap = {}
+  merchants.forEach(m => { merchantMap[m.ID] = m.Name })
+
   const columns = [
     { title: '名称', dataIndex: 'Name', width: 160 },
+    { title: '归属商户', dataIndex: 'MerchantID', width: 160, render: v => merchantMap[v] || v || '—' },
     {
       title: 'API Key', dataIndex: 'APIKey', width: 220,
       render: v => (
@@ -45,8 +60,6 @@ export default function Apps() {
         </Space>
       ),
     },
-    { title: '支付宝 PID', dataIndex: 'AlipayPID', width: 120, render: v => v || '—' },
-    { title: '微信子商户号', dataIndex: 'WechatSubMchid', width: 130, render: v => v || '—' },
     {
       title: '状态', dataIndex: 'Status', width: 80,
       render: v => <Tag color={v === 'active' ? 'green' : 'default'}>{v}</Tag>,
@@ -67,17 +80,22 @@ export default function Apps() {
       </div>
 
       <Table columns={columns} dataSource={apps} rowKey="ID" loading={loading} size="middle"
-        locale={{ emptyText: '暂无应用，点击右上角创建' }}
+        locale={{ emptyText: '暂无应用，请先创建商户' }}
       />
 
       <Modal title="创建应用" open={openCreate} onCancel={() => setOpenCreate(false)} onOk={() => form.submit()} destroyOnClose>
         <Form form={form} layout="vertical" onFinish={handleCreate}>
+          <Form.Item name="merchant_id" label="归属商户" rules={[{ required: true, message: '请选择商户' }]}>
+            <Select
+              placeholder="选择商户"
+              options={merchants.filter(m => m.Status === 'active').map(m => ({ value: m.ID, label: m.Name }))}
+              showSearch
+              filterOption={(input, option) => option.label.toLowerCase().includes(input.toLowerCase())}
+            />
+          </Form.Item>
           <Form.Item name="name" label="应用名称" rules={[{ required: true, message: '请输入应用名称' }]}>
             <Input placeholder="接入方名称" />
           </Form.Item>
-          <Form.Item name="alipay_pid" label="支付宝子商户 PID"><Input placeholder="2088..." /></Form.Item>
-          <Form.Item name="wechat_sub_mchid" label="微信子商户号"><Input placeholder="子商户 mchid" /></Form.Item>
-          <Form.Item name="wechat_sub_appid" label="微信子商户 AppID"><Input placeholder="wx..." /></Form.Item>
           <Form.Item name="webhook_url" label="Webhook 回调地址"><Input placeholder="https://..." /></Form.Item>
         </Form>
       </Modal>
@@ -85,9 +103,6 @@ export default function Apps() {
       <Modal title={`编辑 · ${editing?.Name || ''}`} open={!!editing} onCancel={() => setEditing(null)} onOk={() => editForm.submit()} destroyOnClose>
         <Form form={editForm} layout="vertical" onFinish={handleEdit} initialValues={editing || {}}>
           <Form.Item name="Name" label="名称"><Input /></Form.Item>
-          <Form.Item name="AlipayPID" label="支付宝 PID"><Input /></Form.Item>
-          <Form.Item name="WechatSubMchid" label="微信子商户号"><Input /></Form.Item>
-          <Form.Item name="WechatSubAppid" label="微信子商户 AppID"><Input /></Form.Item>
           <Form.Item name="WebhookURL" label="Webhook 回调地址"><Input /></Form.Item>
           <Form.Item name="Status" label="状态">
             <Select options={[{ value: 'active', label: 'active' }, { value: 'disabled', label: 'disabled' }]} />

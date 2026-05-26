@@ -27,9 +27,9 @@ func (r *OnboardingRepository) GetByID(id uuid.UUID) (*model.MerchantOnboarding,
 	return &ob, nil
 }
 
-func (r *OnboardingRepository) GetByAppID(appID uuid.UUID) ([]model.MerchantOnboarding, error) {
+func (r *OnboardingRepository) GetByMerchantID(merchantID uuid.UUID) ([]model.MerchantOnboarding, error) {
 	var obs []model.MerchantOnboarding
-	err := r.db.Where("app_id = ?", appID).Order("created_at DESC").Find(&obs).Error
+	err := r.db.Where("merchant_id = ?", merchantID).Order("created_at DESC").Find(&obs).Error
 	return obs, err
 }
 
@@ -82,7 +82,7 @@ func (r *OnboardingRepository) List(appID, channel, status string, page, pageSiz
 
 	query := r.db.Model(&model.MerchantOnboarding{})
 	if appID != "" {
-		query = query.Where("app_id = ?", appID)
+		query = query.Where("merchant_id = ?", appID)
 	}
 	if channel != "" {
 		query = query.Where("channel = ?", channel)

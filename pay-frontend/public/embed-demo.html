@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Embedded Checkout Demo — 商户接入示例</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f5f5f5;
+      color: #333;
+    }
+    .header {
+      background: linear-gradient(135deg, #0f1322, #1a1f36);
+      color: #fff;
+      padding: 24px 32px;
+      text-align: center;
+    }
+    .header h1 { font-size: 20px; font-weight: 700; margin-bottom: 4px; }
+    .header p { font-size: 13px; opacity: 0.6; }
+    .main {
+      max-width: 800px;
+      margin: 32px auto;
+      padding: 0 16px;
+    }
+    .section {
+      background: #fff;
+      border-radius: 12px;
+      box-shadow: 0 1px 8px rgba(0,0,0,0.06);
+      padding: 24px;
+      margin-bottom: 24px;
+    }
+    .section h2 {
+      font-size: 16px;
+      font-weight: 600;
+      margin-bottom: 16px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid #f0f0f0;
+    }
+    .form-row {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+    .form-row input {
+      flex: 1;
+      padding: 10px 14px;
+      border: 1px solid #d9d9d9;
+      border-radius: 8px;
+      font-size: 14px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    .form-row input:focus { border-color: #1677ff; }
+    .btn {
+      padding: 10px 24px;
+      background: #1677ff;
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .btn:hover { background: #4096ff; }
+    .btn:disabled { background: #d9d9d9; cursor: not-allowed; }
+    .btn-sm { padding: 6px 16px; font-size: 12px; }
+    .checkout-container {
+      min-height: 200px;
+    }
+    .log {
+      background: #1a1a2e;
+      color: #a0ffa0;
+      font-family: 'SF Mono', 'Monaco', 'Menlo', monospace;
+      font-size: 12px;
+      padding: 16px;
+      border-radius: 8px;
+      max-height: 200px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+    .log .warn { color: #ffa940; }
+    .log .error { color: #ff4d4f; }
+    .steps {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+    .step {
+      flex: 1;
+      font-size: 12px;
+      color: #999;
+      padding: 8px;
+      background: #fafafa;
+      border-radius: 6px;
+      text-align: center;
+    }
+    .step strong { display: block; font-size: 20px; margin-bottom: 2px; }
+  </style>
+  <script src="/sdk/hydra-pay.js"></script>
+</head>
+<body>
+
+<div class="header">
+  <h1>Embedded Checkout Demo</h1>
+  <p>在您的网站中嵌入 HydraPay 收银台 — 三步接入</p>
+</div>
+
+<div class="main">
+  <div class="section">
+    <h2>接入步骤</h2>
+    <div class="steps">
+      <div class="step"><strong>1</strong>页面引入 SDK</div>
+      <div class="step"><strong>2</strong>创建 Checkout Session（API）</div>
+      <div class="step"><strong>3</strong>调用 HydraPay.checkout.create()</div>
+    </div>
+    <p style="font-size: 13px; color: #666;">
+      商户通过 API <code>POST /v1/checkout/sessions</code> 创建 session，拿到 session_id 后在页面中调用 SDK。
+    </p>
+  </div>
+
+  <div class="section">
+    <h2>试一下</h2>
+    <div class="form-row">
+      <input id="sessionInput" type="text" placeholder="输入 Checkout Session ID（UUID）" />
+      <button class="btn" id="payBtn" onclick="startCheckout()">去支付</button>
+    </div>
+    <div id="checkoutContainer" class="checkout-container"></div>
+  </div>
+
+  <div class="section">
+    <h2>事件回调</h2>
+    <div id="log" class="log">等待支付事件...</div>
+  </div>
+
+  <div class="section">
+    <h2>代码示例</h2>
+    <pre style="background: #1a1a2e; color: #e0e0e0; padding: 20px; border-radius: 8px; font-size: 12px; overflow-x: auto;"><code>&lt;script src="https://your-domain.com/sdk/hydra-pay.js"&gt;&lt;/script&gt;
+&lt;script&gt;
+HydraPay.checkout.create({
+  sessionId: 'your-session-id',
+  container: '#checkout',
+  onSuccess: function(data) {
+    console.log('支付成功', data);
+  },
+  onCancel: function(data) {
+    console.log('用户取消', data);
+  },
+  onError: function(data) {
+    console.log('支付错误', data);
+  }
+});
+&lt;/script&gt;</code></pre>
+  </div>
+</div>
+
+<script>
+  function log(msg, cls) {
+    var el = document.getElementById('log')
+    var time = new Date().toLocaleTimeString()
+    var prefix = cls ? '<span class="' + cls + '">' : ''
+    var suffix = cls ? '</span>' : ''
+    el.innerHTML += '\n' + prefix + '[' + time + '] ' + msg + suffix
+    el.scrollTop = el.scrollHeight
+  }
+
+  function startCheckout() {
+    var sessionId = document.getElementById('sessionInput').value.trim()
+    if (!sessionId) {
+      log('请输入 Session ID', 'warn')
+      return
+    }
+
+    log('创建嵌入收银台: sessionId=' + sessionId.slice(0, 8) + '...')
+
+    HydraPay.checkout.create({
+      sessionId: sessionId,
+      container: '#checkoutContainer',
+      onReady: function(data) {
+        log('收银台已就绪', '')
+      },
+      onSuccess: function(data) {
+        log('支付成功! amount=' + data.amount, '')
+      },
+      onCancel: function(data) {
+        log('用户取消了支付', 'warn')
+      },
+      onError: function(data) {
+        log('错误: ' + data.message, 'error')
+      },
+      onExpired: function(data) {
+        log('支付链接已过期', 'warn')
+      },
+      onCompleted: function(data) {
+        log('该订单已支付完成（重复支付）', 'warn')
+      }
+    })
+  }
+</script>
+
+</body>
+</html>
