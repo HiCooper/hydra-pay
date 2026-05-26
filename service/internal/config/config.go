@@ -24,6 +24,10 @@ type ServerConfig struct {
 	AdminAPIPath    string
 	CORSOrigins     string
 	MaxBodyBytes    int64
+	ReadTimeout     string
+	WriteTimeout    string
+	IdleTimeout     string
+	WebhookPoolSize int
 }
 
 type DatabaseConfig struct {
@@ -66,11 +70,15 @@ type WechatConfig struct {
 func Load() *Config {
 	return &Config{
 		Server: ServerConfig{
-			Port:         getEnv("PORT", "8081"),
-			Mode:         getEnv("GIN_MODE", "debug"),
-			AdminAPIPath: getEnv("ADMIN_API_PATH", "/api/admin"),
-			CORSOrigins:  getEnv("CORS_ORIGINS", "http://localhost:5173,http://localhost:5174,http://localhost:5175"),
-			MaxBodyBytes: int64(getEnvInt("MAX_BODY_BYTES", 1<<20)), // 1MB default
+			Port:            getEnv("PORT", "8081"),
+			Mode:            getEnv("GIN_MODE", "debug"),
+			AdminAPIPath:    getEnv("ADMIN_API_PATH", "/api/admin"),
+			CORSOrigins:     getEnv("CORS_ORIGINS", "http://localhost:5173,http://localhost:5174,http://localhost:5175"),
+			MaxBodyBytes:    int64(getEnvInt("MAX_BODY_BYTES", 1<<20)),
+			ReadTimeout:     getEnv("SERVER_READ_TIMEOUT", "30s"),
+			WriteTimeout:    getEnv("SERVER_WRITE_TIMEOUT", "30s"),
+			IdleTimeout:     getEnv("SERVER_IDLE_TIMEOUT", "120s"),
+			WebhookPoolSize: getEnvInt("WEBHOOK_POOL_SIZE", 10),
 		},
 		Database: DatabaseConfig{
 			DSN:             getEnv("DATABASE_URL", "postgres://hydra:hydra_secret@localhost:5432/hydra_pay?sslmode=disable"),

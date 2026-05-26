@@ -34,18 +34,23 @@ var webhookClient = &http.Client{
 }
 
 type PaymentService struct {
-	repo             *repository.PaymentRepository
-	taskRepo         *repository.ScheduledTaskRepository
-	refundRepo       *repository.RefundRepository
-	wallWebhookURL   string
+	repo              *repository.PaymentRepository
+	taskRepo          *repository.ScheduledTaskRepository
+	refundRepo        *repository.RefundRepository
+	wallWebhookURL    string
 	wallWebhookSecret string
-	cfg              *config.Config
-	db               *gorm.DB
+	cfg               *config.Config
+	db                *gorm.DB
+	webhookSem        chan struct{}
 }
 
 func (s *PaymentService) GetConfig() *config.Config { return s.cfg }
 
 func NewPaymentService(repo *repository.PaymentRepository, cfg *config.Config, db *gorm.DB) *PaymentService {
+	poolSize := cfg.Server.WebhookPoolSize
+	if poolSize <= 0 {
+		poolSize = 10
+	}
 	return &PaymentService{
 		repo:              repo,
 		taskRepo:          repository.NewScheduledTaskRepository(db),
@@ -54,6 +59,7 @@ func NewPaymentService(repo *repository.PaymentRepository, cfg *config.Config, d
 		wallWebhookSecret: cfg.Wall.WebhookSecret,
 		cfg:               cfg,
 		db:                db,
+		webhookSem:        make(chan struct{}, poolSize),
 	}
 }
 
@@ -180,7 +186,7 @@ func (s *PaymentService) Refund(ctx context.Context, input *RefundInput) (*Refun
 			"refund_id":   chResp.ChannelRefundID,
 		}, "")
 
-	go s.safeNotifyWallRefund(payment, refund)
+	s.safeNotifyWallRefund(payment, refund)
 
 	return &RefundResult{Refund: refund, Payment: payment}, nil
 }
@@ -403,12 +409,27 @@ func (s *PaymentService) HandleCallback(ctx context.Context, channelName string,
 			"to":   payment.Status,
 		}, "")
 
-	go s.safeNotifyWall(payment, result)
+	s.safeNotifyWall(payment, result)
 
 	return result, nil
 }
 
 func (s *PaymentService) safeNotifyWall(payment *model.Payment, result *channel.CallbackResult) {
+	select {
+	case s.webhookSem <- struct{}{}:
+		go func() {
+			defer func() { <-s.webhookSem }()
+			s.doSafeNotifyWall(payment, result)
+		}()
+	default:
+		logger.Error(context.Background(), "webhook pool exhausted, dropping notification",
+			"payment_id", payment.ID, "status", payment.Status)
+		repository.RecordEvent(s.db, model.EventWebhookSent, payment.Channel,
+			payment.ID, "", nil, "dropped: webhook pool exhausted")
+	}
+}
+
+func (s *PaymentService) doSafeNotifyWall(payment *model.Payment, result *channel.CallbackResult) {
 	defer func() {
 		if r := recover(); r != nil {
 			logger.Error(context.Background(), "panic in webhook notification", "error", r)
@@ -479,6 +500,21 @@ func (s *PaymentService) notifyWall(payment *model.Payment, result *channel.Call
 }
 
 func (s *PaymentService) safeNotifyWallRefund(payment *model.Payment, refund *model.Refund) {
+	select {
+	case s.webhookSem <- struct{}{}:
+		go func() {
+			defer func() { <-s.webhookSem }()
+			s.doSafeNotifyWallRefund(payment, refund)
+		}()
+	default:
+		logger.Error(context.Background(), "webhook pool exhausted, dropping refund notification",
+			"payment_id", payment.ID, "refund_id", refund.ID)
+		repository.RecordEvent(s.db, model.EventWebhookSent, payment.Channel,
+			payment.ID, "", nil, "dropped: webhook pool exhausted")
+	}
+}
+
+func (s *PaymentService) doSafeNotifyWallRefund(payment *model.Payment, refund *model.Refund) {
 	defer func() {
 		if r := recover(); r != nil {
 			logger.Error(context.Background(), "panic in refund webhook notification", "error", r)
