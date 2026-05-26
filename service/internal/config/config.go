@@ -25,7 +25,8 @@ type DatabaseConfig struct {
 }
 
 type WallConfig struct {
-	WebhookURL string
+	WebhookURL    string
+	WebhookSecret string // HMAC-SHA256 signing secret for webhook signatures
 }
 
 type AlipayConfig struct {
@@ -38,6 +39,7 @@ type AlipayConfig struct {
 	IsSandbox          bool
 	PrivateKeyPath     string
 	AlipayPublicKeyPath string
+	OnboardingNotifyURL string
 }
 
 type WechatConfig struct {
@@ -48,6 +50,7 @@ type WechatConfig struct {
 	PrivateKeyPath string
 	NotifyURL      string
 	IsSandbox      bool
+	OnboardingNotifyURL string
 }
 
 func Load() *Config {
@@ -62,7 +65,8 @@ func Load() *Config {
 			DSN: getEnv("DATABASE_URL", "postgres://hydra:hydra_secret@localhost:5432/hydra_pay?sslmode=disable"),
 		},
 		Wall: WallConfig{
-			WebhookURL: getEnv("WALL_WEBHOOK_URL", "http://localhost:8080/api/v1/webhooks/payment"),
+			WebhookURL:    getEnv("WALL_WEBHOOK_URL", "http://localhost:8080/api/v1/webhooks/payment"),
+			WebhookSecret: getEnv("WALL_WEBHOOK_SECRET", ""),
 		},
 		Alipay: AlipayConfig{
 			AppID:               getEnv("ALIPAY_APP_ID", ""),
@@ -74,6 +78,7 @@ func Load() *Config {
 			IsSandbox:           getEnv("ALIPAY_SANDBOX", "false") == "true",
 			PrivateKeyPath:      getEnv("ALIPAY_PRIVATE_KEY_PATH", ""),
 			AlipayPublicKeyPath: getEnv("ALIPAY_ALIPAY_PUBLIC_KEY_PATH", ""),
+			OnboardingNotifyURL: getEnv("ALIPAY_ONBOARDING_NOTIFY_URL", ""),
 		},
 		Wechat: WechatConfig{
 			MchID:          getEnv("WECHAT_MCH_ID", ""),
@@ -82,7 +87,8 @@ func Load() *Config {
 			PrivateKey:     resolveKey("WECHAT_PRIVATE_KEY", "WECHAT_PRIVATE_KEY_PATH"),
 			PrivateKeyPath: getEnv("WECHAT_PRIVATE_KEY_PATH", ""),
 			NotifyURL:      getEnv("WECHAT_NOTIFY_URL", ""),
-			IsSandbox:      getEnv("WECHAT_SANDBOX", "false") == "true",
+			IsSandbox:            getEnv("WECHAT_SANDBOX", "false") == "true",
+			OnboardingNotifyURL: getEnv("WECHAT_ONBOARDING_NOTIFY_URL", ""),
 		},
 	}
 }

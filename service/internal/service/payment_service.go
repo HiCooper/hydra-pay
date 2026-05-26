@@ -21,6 +21,7 @@ import (
 	"github.com/hydra/pay-service/internal/repository"
 	"github.com/hydra/pay-service/pkg/errors"
 	"github.com/hydra/pay-service/pkg/tradeno"
+	"github.com/hydra/pay-service/pkg/webhook"
 )
 
 var webhookClient = &http.Client{
@@ -33,20 +34,26 @@ var webhookClient = &http.Client{
 }
 
 type PaymentService struct {
-	repo     *repository.PaymentRepository
-	taskRepo *repository.ScheduledTaskRepository
-	wallWebhookURL string
-	cfg      *config.Config
-	db       *gorm.DB
+	repo             *repository.PaymentRepository
+	taskRepo         *repository.ScheduledTaskRepository
+	refundRepo       *repository.RefundRepository
+	wallWebhookURL   string
+	wallWebhookSecret string
+	cfg              *config.Config
+	db               *gorm.DB
 }
+
+func (s *PaymentService) GetConfig() *config.Config { return s.cfg }
 
 func NewPaymentService(repo *repository.PaymentRepository, cfg *config.Config, db *gorm.DB) *PaymentService {
 	return &PaymentService{
-		repo:     repo,
-		taskRepo: repository.NewScheduledTaskRepository(db),
-		wallWebhookURL: cfg.Wall.WebhookURL,
-		cfg:      cfg,
-		db:       db,
+		repo:              repo,
+		taskRepo:          repository.NewScheduledTaskRepository(db),
+		refundRepo:        repository.NewRefundRepository(db),
+		wallWebhookURL:    cfg.Wall.WebhookURL,
+		wallWebhookSecret: cfg.Wall.WebhookSecret,
+		cfg:               cfg,
+		db:                db,
 	}
 }
 
@@ -76,7 +83,109 @@ type CreatePaymentResult struct {
 	QRCodeURL  string
 }
 
-func getAdapter(name string, cfg *config.Config) (channel.Adapter, error) {
+type RefundInput struct {
+	TradeNo      string
+	RefundAmount int64  // in cents
+	RefundReason string
+}
+
+type RefundResult struct {
+	Refund  *model.Refund
+	Payment *model.Payment
+}
+
+// Refund creates a refund for a paid payment.
+func (s *PaymentService) Refund(ctx context.Context, input *RefundInput) (*RefundResult, error) {
+	if input == nil || input.TradeNo == "" {
+		return nil, errors.New(errors.ValidationError, "trade_no is required")
+	}
+	if input.RefundAmount <= 0 {
+		return nil, errors.New(errors.ValidationError, "refund_amount must be positive")
+	}
+
+	payment, err := s.repo.GetByTradeNo(input.TradeNo)
+	if err != nil {
+		return nil, errors.New(errors.NotFound, "payment not found")
+	}
+	if payment.Status != model.PaymentStatusPaid {
+		return nil, errors.New(errors.ValidationError, "only paid orders can be refunded")
+	}
+
+	if input.RefundAmount > payment.Amount {
+		return nil, errors.New(errors.ValidationError, "refund amount exceeds payment amount")
+	}
+
+	outReqNo := "RF" + payment.TradeNo
+
+	// Idempotency: check if refund already exists
+	if existing, err := s.refundRepo.GetByOutRequestNo(outReqNo); err == nil {
+		log.Printf("[pay] refund already exists: out_request_no=%s, status=%s", outReqNo, existing.Status)
+		return &RefundResult{Refund: existing, Payment: payment}, nil
+	}
+
+	refund := &model.Refund{
+		PaymentID:    payment.ID,
+		TradeNo:      payment.TradeNo,
+		Channel:      payment.Channel,
+		RefundAmount: fmt.Sprintf("%.2f", float64(input.RefundAmount)/100),
+		RefundReason: input.RefundReason,
+		OutRequestNo: outReqNo,
+		Status:       model.RefundStatusProcessing,
+	}
+	if err := s.refundRepo.Create(refund); err != nil {
+		return nil, errors.Wrap(errors.InternalError, "failed to create refund record", err)
+	}
+
+	adapter, err := GetAdapter(payment.Channel, s.cfg)
+	if err != nil {
+		s.refundRepo.UpdateStatus(refund.ID, model.RefundStatusFailed, "", "", err.Error())
+		repository.RecordEvent(s.db, model.EventRefund, payment.Channel,
+			payment.ID, "", nil, err.Error())
+		return nil, errors.Wrap(errors.ChannelError, "failed to init channel adapter", err)
+	}
+
+	chResp, err := adapter.Refund(ctx, &channel.RefundRequest{
+		TradeNo:      payment.TradeNo,
+		ChannelTxID:  payment.ExternalID,
+		RefundAmount: input.RefundAmount,
+		TotalAmount:  payment.Amount,
+		RefundReason: input.RefundReason,
+		OutRequestNo: outReqNo,
+	})
+	if err != nil {
+		s.refundRepo.UpdateStatus(refund.ID, model.RefundStatusFailed, "", "", err.Error())
+		repository.RecordEvent(s.db, model.EventRefund, payment.Channel,
+			payment.ID, "", nil, err.Error())
+		return nil, errors.Wrap(errors.ChannelError, "refund failed", err)
+	}
+
+	refundFeeStr := fmt.Sprintf("%.2f", float64(chResp.RefundFee)/100)
+	s.refundRepo.UpdateStatus(refund.ID, model.RefundStatusSuccess, chResp.ChannelRefundID, refundFeeStr, "")
+
+	respJSON, _ := json.Marshal(chResp.RawResponse)
+	refund.Status = model.RefundStatusSuccess
+	refund.ChannelRefundID = chResp.ChannelRefundID
+	refund.RefundFee = refundFeeStr
+	refund.ResponseData = respJSON
+
+	if err := s.repo.UpdateStatus(payment.ID, model.PaymentStatusRefunded, payment.ExternalID); err != nil {
+		log.Printf("[pay] failed to update payment status to refunded: %v", err)
+	}
+	payment.Status = model.PaymentStatusRefunded
+
+	repository.RecordEvent(s.db, model.EventRefund, payment.Channel,
+		payment.ID, string(respJSON),
+		map[string]interface{}{
+			"refund_fee":  refundFeeStr,
+			"refund_id":   chResp.ChannelRefundID,
+		}, "")
+
+	go s.safeNotifyWallRefund(payment, refund)
+
+	return &RefundResult{Refund: refund, Payment: payment}, nil
+}
+
+func GetAdapter(name string, cfg *config.Config) (channel.Adapter, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("config cannot be nil")
 	}
@@ -93,11 +202,6 @@ func getAdapter(name string, cfg *config.Config) (channel.Adapter, error) {
 func (s *PaymentService) CreatePayment(ctx context.Context, input *CreatePaymentInput) (*CreatePaymentResult, error) {
 	if input == nil {
 		return nil, errors.New(errors.ValidationError, "payment input cannot be nil")
-	}
-
-	adapter, err := getAdapter(input.ChannelName, s.cfg)
-	if err != nil {
-		return nil, errors.Wrap(errors.ChannelError, "failed to init channel adapter", err)
 	}
 
 	if input.Currency == "" {
@@ -133,11 +237,43 @@ func (s *PaymentService) CreatePayment(ctx context.Context, input *CreatePayment
 	repository.RecordEvent(s.db, model.EventCreated, input.ChannelName,
 		payment.ID, "", nil, "")
 
+	// Schedule timeout check
+	if err := s.taskRepo.Create(&model.ScheduledTask{
+		TaskType:    model.TaskTypeOrderTimeout,
+		ReferenceID: payment.ID,
+		ExecuteAt:   payment.CreatedAt.Add(15 * time.Minute),
+		Status:      model.TaskStatusPending,
+	}); err != nil {
+		log.Printf("[pay] failed to schedule timeout task for %s: %v", tradeNo, err)
+	}
+
+	// If channel is specified, activate immediately
+	if input.ChannelName != "" {
+		result, err := s.ActivateChannel(ctx, payment, input)
+		if err != nil {
+			s.repo.UpdateStatus(payment.ID, model.PaymentStatusFailed, "")
+			repository.RecordEvent(s.db, model.EventChannelRequest, input.ChannelName,
+				payment.ID, "", nil, err.Error())
+			return nil, err
+		}
+		return result, nil
+	}
+
+	return &CreatePaymentResult{Payment: payment}, nil
+}
+
+// ActivateChannel activates a pending payment with the given channel.
+func (s *PaymentService) ActivateChannel(ctx context.Context, payment *model.Payment, input *CreatePaymentInput) (*CreatePaymentResult, error) {
+	adapter, err := GetAdapter(input.ChannelName, s.cfg)
+	if err != nil {
+		return nil, errors.Wrap(errors.ChannelError, "failed to init channel adapter", err)
+	}
+
 	chResp, err := adapter.CreatePayment(ctx, &channel.CreatePaymentRequest{
-		PaymentID:      tradeNo,
-		Amount:         input.Amount,
-		Currency:       input.Currency,
-		Description:    input.Description,
+		PaymentID:      payment.TradeNo,
+		Amount:         payment.Amount,
+		Currency:       payment.Currency,
+		Description:    payment.Description,
 		SuccessURL:     input.SuccessURL,
 		CancelURL:      input.CancelURL,
 		TradeType:      input.TradeType,
@@ -149,11 +285,6 @@ func (s *PaymentService) CreatePayment(ctx context.Context, input *CreatePayment
 		NotifyURL:       input.NotifyURL,
 	})
 	if err != nil {
-		if updateErr := s.repo.UpdateStatus(payment.ID, model.PaymentStatusFailed, ""); updateErr != nil {
-			log.Printf("[pay] failed to update payment status after channel error: %v", updateErr)
-		}
-		repository.RecordEvent(s.db, model.EventChannelRequest, input.ChannelName,
-			payment.ID, "", nil, err.Error())
 		return nil, errors.Wrap(errors.PaymentFailed, "channel payment creation failed", err)
 	}
 
@@ -163,18 +294,18 @@ func (s *PaymentService) CreatePayment(ctx context.Context, input *CreatePayment
 	if updateErr := s.repo.UpdateStatus(payment.ID, model.PaymentStatusProcessing, chResp.ChannelTxID); updateErr != nil {
 		log.Printf("[pay] failed to update payment status to processing: %v", updateErr)
 	}
+	if updateErr := s.repo.UpdateChannelURLs(payment.ID, chResp.PaymentURL, chResp.QRCodeURL); updateErr != nil {
+		log.Printf("[pay] failed to update payment URLs: %v", updateErr)
+	}
+	if updateErr := s.repo.UpdateChannel(payment.ID, input.ChannelName); updateErr != nil {
+		log.Printf("[pay] failed to update payment channel: %v", updateErr)
+	}
+
 	payment.Status = model.PaymentStatusProcessing
 	payment.ExternalID = chResp.ChannelTxID
-
-	// Schedule timeout check
-	if err := s.taskRepo.Create(&model.ScheduledTask{
-		TaskType:    model.TaskTypeOrderTimeout,
-		ReferenceID: payment.ID,
-		ExecuteAt:   payment.CreatedAt.Add(15 * time.Minute),
-		Status:      model.TaskStatusPending,
-	}); err != nil {
-		log.Printf("[pay] failed to schedule timeout task for %s: %v", tradeNo, err)
-	}
+	payment.Channel = input.ChannelName
+	payment.PaymentURL = chResp.PaymentURL
+	payment.QRCodeURL = chResp.QRCodeURL
 
 	return &CreatePaymentResult{
 		Payment:    payment,
@@ -206,7 +337,7 @@ func (s *PaymentService) HandleCallback(ctx context.Context, channelName string,
 	// Record raw callback arrival before any processing
 	log.Printf("[pay] callback received: channel=%s, body_len=%d", channelName, len(data.RawBody))
 
-	adapter, err := getAdapter(channelName, s.cfg)
+	adapter, err := GetAdapter(channelName, s.cfg)
 	if err != nil {
 		return nil, errors.Wrap(errors.ChannelError, "failed to init channel adapter", err)
 	}
@@ -287,11 +418,17 @@ func (s *PaymentService) safeNotifyWall(payment *model.Payment, result *channel.
 }
 
 func (s *PaymentService) notifyWall(payment *model.Payment, result *channel.CallbackResult) {
-	// Look up the app's webhook URL; fall back to global config
+	// Look up the app's webhook URL and secret; fall back to global config
 	webhookURL := s.wallWebhookURL
+	webhookSecret := s.wallWebhookSecret
 	var app model.App
-	if err := s.db.First(&app, "id = ?", payment.AppID).Error; err == nil && app.WebhookURL != "" {
-		webhookURL = app.WebhookURL
+	if err := s.db.First(&app, "id = ?", payment.AppID).Error; err == nil {
+		if app.WebhookURL != "" {
+			webhookURL = app.WebhookURL
+		}
+		if app.WebhookSecret != "" {
+			webhookSecret = app.WebhookSecret
+		}
 	}
 	if webhookURL == "" {
 		return
@@ -325,7 +462,7 @@ func (s *PaymentService) notifyWall(payment *model.Payment, result *channel.Call
 		if i > 0 {
 			time.Sleep(delay)
 		}
-		if err := s.sendWebhook(webhookURL, body); err != nil {
+		if err := s.sendWebhook(webhookURL, body, webhookSecret); err != nil {
 			lastErr = err
 			log.Printf("[pay] webhook attempt %d/3 to %s failed: %v", i+1, webhookURL, err)
 			continue
@@ -341,7 +478,74 @@ func (s *PaymentService) notifyWall(payment *model.Payment, result *channel.Call
 	log.Printf("[pay] webhook permanently failed after 3 attempts: %v", lastErr)
 }
 
-func (s *PaymentService) sendWebhook(url string, body []byte) error {
+func (s *PaymentService) safeNotifyWallRefund(payment *model.Payment, refund *model.Refund) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[pay] panic in notifyWallRefund: %v", r)
+		}
+	}()
+	s.notifyWallRefund(payment, refund)
+}
+
+func (s *PaymentService) notifyWallRefund(payment *model.Payment, refund *model.Refund) {
+	webhookURL := s.wallWebhookURL
+	webhookSecret := s.wallWebhookSecret
+	var app model.App
+	if err := s.db.First(&app, "id = ?", payment.AppID).Error; err == nil {
+		if app.WebhookURL != "" {
+			webhookURL = app.WebhookURL
+		}
+		if app.WebhookSecret != "" {
+			webhookSecret = app.WebhookSecret
+		}
+	}
+	if webhookURL == "" {
+		return
+	}
+
+	payload := map[string]interface{}{
+		"event":         "payment.refunded",
+		"payment_id":    payment.ID.String(),
+		"user_id":       payment.UserID,
+		"plan_id":       payment.PlanID,
+		"amount":        payment.Amount,
+		"currency":      payment.Currency,
+		"status":        payment.Status,
+		"channel":       payment.Channel,
+		"refund_amount": refund.RefundAmount,
+		"refund_reason": refund.RefundReason,
+		"refund_id":     refund.ID.String(),
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		log.Printf("[pay] failed to marshal refund webhook payload: %v", err)
+		return
+	}
+
+	retries := []time.Duration{1 * time.Second, 5 * time.Second, 15 * time.Second}
+	var lastErr error
+	for i, delay := range retries {
+		if i > 0 {
+			time.Sleep(delay)
+		}
+		if err := s.sendWebhook(webhookURL, body, webhookSecret); err != nil {
+			lastErr = err
+			log.Printf("[pay] refund webhook attempt %d/3 to %s failed: %v", i+1, webhookURL, err)
+			continue
+		}
+		repository.RecordEvent(s.db, model.EventWebhookSent, payment.Channel,
+			payment.ID, string(body),
+			map[string]interface{}{"attempt": i + 1, "url": webhookURL}, "")
+		return
+	}
+	repository.RecordEvent(s.db, model.EventWebhookSent, payment.Channel,
+		payment.ID, string(body), nil,
+		fmt.Sprintf("failed after 3 attempts: %v", lastErr))
+	log.Printf("[pay] refund webhook permanently failed after 3 attempts: %v", lastErr)
+}
+
+func (s *PaymentService) sendWebhook(url string, body []byte, secret string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
@@ -350,6 +554,11 @@ func (s *PaymentService) sendWebhook(url string, body []byte) error {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
+
+	if secret != "" {
+		sig := webhook.Sign(secret, body, time.Now().Unix())
+		req.Header.Set("X-HydraPay-Signature", sig)
+	}
 
 	resp, err := webhookClient.Do(req)
 	if err != nil {

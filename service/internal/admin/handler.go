@@ -1,41 +1,40 @@
 package admin
 
 import (
-	"context"
-	"encoding/json"
-	"log"
 	"fmt"
-	"strings"
 	"net/http"
 	"os"
-	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
-	"github.com/smartwalle/alipay/v3"
-	"github.com/wechatpay-apiv3/wechatpay-go/core"
-	"github.com/wechatpay-apiv3/wechatpay-go/core/option"
-	"github.com/wechatpay-apiv3/wechatpay-go/services/refunddomestic"
-	"github.com/wechatpay-apiv3/wechatpay-go/utils"
 	"gorm.io/gorm"
 
+	"github.com/hydra/pay-service/internal/channel"
 	"github.com/hydra/pay-service/internal/model"
 	"github.com/hydra/pay-service/internal/repository"
+	"github.com/hydra/pay-service/internal/service"
 	"github.com/hydra/pay-service/pkg/response"
 )
 
 type Handler struct {
-	db          *gorm.DB
-	paymentRepo *repository.PaymentRepository
-	eventRepo   *repository.EventRepository
+	db             *gorm.DB
+	paymentRepo    *repository.PaymentRepository
+	eventRepo      *repository.EventRepository
+	payService     *service.PaymentService
+	planRepo       *repository.SubscriptionPlanRepository
+	onboardingRepo *repository.OnboardingRepository
 }
 
-func NewHandler(db *gorm.DB) *Handler {
+func NewHandler(db *gorm.DB, payService *service.PaymentService) *Handler {
 	return &Handler{
-		db:          db,
-		paymentRepo: repository.NewPaymentRepository(db),
-		eventRepo:   repository.NewEventRepository(db),
+		db:             db,
+		paymentRepo:    repository.NewPaymentRepository(db),
+		eventRepo:      repository.NewEventRepository(db),
+		payService:     payService,
+		planRepo:       repository.NewSubscriptionPlanRepository(db),
+		onboardingRepo: repository.NewOnboardingRepository(db),
 	}
 }
 
@@ -137,6 +136,215 @@ func (h *Handler) UpdateApp(c *gin.Context) {
 	var app model.App
 	h.db.First(&app, "id = ?", id)
 	response.Success(c, app)
+}
+
+// ---- Onboarding ----
+
+func (h *Handler) InitiateOnboarding(c *gin.Context) {
+	appID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, "INVALID_ID", "invalid app id")
+		return
+	}
+
+	var app model.App
+	if err := h.db.First(&app, "id = ?", appID).Error; err != nil {
+		response.Error(c, http.StatusNotFound, "NOT_FOUND", "app not found")
+		return
+	}
+
+	var req struct {
+		Channel      string `json:"channel"`
+		MerchantName string `json:"merchant_name"`
+		ContactName  string `json:"contact_name"`
+		ContactPhone string `json:"contact_phone"`
+		ContactEmail string `json:"contact_email"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, http.StatusBadRequest, "INVALID_BODY", err.Error())
+		return
+	}
+	if req.Channel == "" || req.MerchantName == "" || req.ContactName == "" || req.ContactPhone == "" {
+		response.Error(c, http.StatusBadRequest, "INVALID_BODY", "channel, merchant_name, contact_name, contact_phone are required")
+		return
+	}
+	if req.Channel != model.ChannelAlipay && req.Channel != model.ChannelWechat {
+		response.Error(c, http.StatusBadRequest, "INVALID_CHANNEL", "channel must be 'alipay' or 'wechat'")
+		return
+	}
+
+	// Check no active onboarding already exists for this app+channel
+	existing, _ := h.onboardingRepo.GetByAppID(appID)
+	for _, ob := range existing {
+		if ob.Channel == req.Channel && ob.Status != model.OnboardingStatusApproved && ob.Status != model.OnboardingStatusRejected {
+			response.Error(c, http.StatusConflict, "DUPLICATE", "an active onboarding already exists for this app and channel")
+			return
+		}
+	}
+
+	adapter, err := service.GetAdapter(req.Channel, h.payService.GetConfig())
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "CHANNEL_ERROR", err.Error())
+		return
+	}
+
+	provider, ok := adapter.(channel.OnboardingProvider)
+	if !ok {
+		response.Error(c, http.StatusBadRequest, "NOT_SUPPORTED", "channel does not support onboarding: "+req.Channel)
+		return
+	}
+
+	outReqNo := "ONB-" + uuid.New().String()[:8]
+	notifyURL := h.getOnboardingNotifyURL(req.Channel)
+
+	chReq := &channel.OnboardingRequest{
+		OutRequestNo: outReqNo,
+		MerchantName: req.MerchantName,
+		ContactName:  req.ContactName,
+		ContactPhone: req.ContactPhone,
+		ContactEmail: req.ContactEmail,
+		NotifyURL:    notifyURL,
+	}
+
+	ob := &model.MerchantOnboarding{
+		AppID:        appID,
+		Channel:      req.Channel,
+		OutRequestNo: outReqNo,
+		Status:       model.OnboardingStatusPending,
+	}
+	if err := h.onboardingRepo.Create(ob); err != nil {
+		response.Error(c, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		return
+	}
+
+	chResp, err := provider.SubmitOnboarding(c.Request.Context(), chReq)
+	if err != nil {
+		h.onboardingRepo.MarkRejected(ob.ID, err.Error())
+		response.Error(c, http.StatusBadGateway, "ONBOARDING_FAILED", err.Error())
+		return
+	}
+
+	updates := map[string]interface{}{
+		"status":         model.OnboardingStatusSubmitted,
+		"applyment_id":   chResp.ApplymentID,
+		"sign_url":       chResp.SignURL,
+		"qr_code_url":    chResp.QRCodeURL,
+	}
+	h.db.Model(&model.MerchantOnboarding{}).Where("id = ?", ob.ID).Updates(updates)
+
+	ob.Status = model.OnboardingStatusSubmitted
+	ob.ApplymentID = chResp.ApplymentID
+	ob.SignURL = chResp.SignURL
+	ob.QrCodeURL = chResp.QRCodeURL
+
+	response.Success(c, ob)
+}
+
+func (h *Handler) GetOnboardingStatus(c *gin.Context) {
+	appID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, "INVALID_ID", "invalid app id")
+		return
+	}
+
+	records, err := h.onboardingRepo.GetByAppID(appID)
+	if err != nil || len(records) == 0 {
+		response.Error(c, http.StatusNotFound, "NOT_FOUND", "no onboarding record found for this app")
+		return
+	}
+
+	ob := &records[0]
+
+	// If not terminal, refresh from channel
+	if ob.Status != model.OnboardingStatusApproved && ob.Status != model.OnboardingStatusRejected {
+		adapter, err := service.GetAdapter(ob.Channel, h.payService.GetConfig())
+		if err == nil {
+			if provider, ok := adapter.(channel.OnboardingProvider); ok {
+				statusResp, err := provider.QueryOnboarding(c.Request.Context(), ob.ApplymentID)
+				if err == nil {
+					h.onboardingRepo.UpdateStatus(ob.ID, statusResp.Status)
+					ob.Status = statusResp.Status
+
+					if statusResp.SignURL != "" {
+						h.onboardingRepo.UpdateSignURL(ob.ID, statusResp.SignURL, statusResp.QRCodeURL)
+						ob.SignURL = statusResp.SignURL
+						ob.QrCodeURL = statusResp.QRCodeURL
+					}
+
+					if statusResp.Status == model.OnboardingStatusApproved && statusResp.SubMerchantID != "" {
+						h.onboardingRepo.MarkApproved(ob.ID, statusResp.SubMerchantID)
+						ob.Status = model.OnboardingStatusApproved
+						ob.SubMerchantID = statusResp.SubMerchantID
+						// Auto-update App
+						h.autoUpdateAppMerchantID(appID, ob.Channel, statusResp.SubMerchantID)
+					}
+				}
+			}
+		}
+	}
+
+	response.Success(c, ob)
+}
+
+func (h *Handler) ListOnboardings(c *gin.Context) {
+	page := 1
+	pageSize := 10
+	if p := c.Query("page"); p != "" {
+		fmt.Sscanf(p, "%d", &page)
+	}
+	if ps := c.Query("page_size"); ps != "" {
+		fmt.Sscanf(ps, "%d", &pageSize)
+	}
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 || pageSize > 100 {
+		pageSize = 10
+	}
+
+	records, total, err := h.onboardingRepo.List(
+		c.Query("app_id"),
+		c.Query("channel"),
+		c.Query("status"),
+		page, pageSize,
+	)
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		return
+	}
+
+	response.Success(c, gin.H{
+		"onboardings": records,
+		"total":       total,
+		"page":        page,
+		"page_size":   pageSize,
+	})
+}
+
+func (h *Handler) getOnboardingNotifyURL(channel string) string {
+	switch channel {
+	case model.ChannelAlipay:
+		return h.payService.GetConfig().Alipay.OnboardingNotifyURL
+	case model.ChannelWechat:
+		return h.payService.GetConfig().Wechat.OnboardingNotifyURL
+	}
+	return ""
+}
+
+func (h *Handler) autoUpdateAppMerchantID(appID uuid.UUID, channel, subMerchantID string) {
+	if subMerchantID == "" {
+		return
+	}
+	var field string
+	switch channel {
+	case model.ChannelAlipay:
+		field = "alipay_pid"
+	case model.ChannelWechat:
+		field = "wechat_sub_mchid"
+	default:
+		return
+	}
+	h.db.Model(&model.App{}).Where("id = ?", appID).Update(field, subMerchantID)
 }
 
 // ---- Orders ----
@@ -518,199 +726,128 @@ func (h *Handler) TestRefund(c *gin.Context) {
 		return
 	}
 
-	payment, err := h.paymentRepo.GetByTradeNo(req.TradeNo)
-	if err != nil {
-		response.Error(c, http.StatusNotFound, "NOT_FOUND", "payment not found")
+	// Convert yuan (string) to cents (int64) for the service layer
+	amountYuan := 0.0
+	if _, err := fmt.Sscanf(req.RefundAmount, "%f", &amountYuan); err != nil {
+		response.Error(c, http.StatusBadRequest, "INVALID_BODY", "invalid refund_amount")
 		return
 	}
-	if payment.Status != model.PaymentStatusPaid {
-		response.Error(c, http.StatusBadRequest, "NOT_PAID", "only paid orders can be refunded")
-		return
-	}
+	amountCents := int64(amountYuan * 100)
 
-	outReqNo := "RF" + payment.TradeNo
-	ctx := c.Request.Context()
-
-	switch payment.Channel {
-	case model.ChannelAlipay:
-		alipayRefund(c, payment, req.RefundAmount, req.RefundReason, outReqNo, ctx, h)
-	case model.ChannelWechat:
-		wechatRefund(c, payment, req.RefundAmount, req.RefundReason, outReqNo, ctx, h)
-	default:
-		response.Error(c, http.StatusBadRequest, "UNSUPPORTED", "unsupported channel: "+payment.Channel)
-	}
-}
-
-func alipayRefund(c *gin.Context, payment *model.Payment, amount, reason, outReqNo string, ctx context.Context, h *Handler) {
-	appID := os.Getenv("ALIPAY_APP_ID")
-	privateKey := resolveAdminKey()
-	if appID == "" || privateKey == "" {
-		response.Error(c, http.StatusInternalServerError, "CONFIG_ERROR", "alipay not configured")
-		return
-	}
-
-	isSandbox := os.Getenv("ALIPAY_SANDBOX") == "true"
-	client, err := alipay.New(appID, privateKey, !isSandbox)
-	if err != nil {
-		response.Error(c, http.StatusInternalServerError, "CLIENT_ERROR", "failed to create alipay client: "+err.Error())
-		return
-	}
-
-	pubKey := os.Getenv("ALIPAY_ALIPAY_PUBLIC_KEY")
-	if pubKey != "" {
-		if err := client.LoadAliPayPublicKey(pubKey); err != nil {
-			response.Error(c, http.StatusInternalServerError, "CLIENT_ERROR", "failed to load alipay public key: "+err.Error())
-			return
-		}
-	}
-
-	p := alipay.TradeRefund{
-		OutTradeNo:   payment.TradeNo,
-		RefundAmount: amount,
-		OutRequestNo: outReqNo,
-	}
-	if reason != "" {
-		p.RefundReason = reason
-	}
-
-	resp, err := client.TradeRefund(ctx, p)
-	if err != nil {
-		response.Error(c, http.StatusBadGateway, "REFUND_FAILED", err.Error())
-		return
-	}
-	if resp.Code != alipay.CodeSuccess {
-		response.Error(c, http.StatusBadGateway, "REFUND_FAILED",
-			fmt.Sprintf("%s (code=%s)", resp.Msg, resp.Code))
-		return
-	}
-
-	if err := h.paymentRepo.UpdateStatus(payment.ID, model.PaymentStatusRefunded, payment.ExternalID); err != nil {
-		log.Printf("[refund] update status failed: %v", err)
-	}
-
-	respJSON, _ := json.Marshal(resp)
-	h.db.Create(&model.Refund{
-		PaymentID:       payment.ID,
-		TradeNo:         payment.TradeNo,
-		Channel:         model.ChannelAlipay,
-		RefundAmount:    amount,
-		RefundReason:    reason,
-		OutRequestNo:    outReqNo,
-		Status:          model.RefundStatusSuccess,
-		ChannelRefundID: resp.TradeNo,
-		ChannelTxID:     resp.TradeNo,
-		RefundFee:       resp.RefundFee,
-		ResponseData:    respJSON,
+	result, err := h.payService.Refund(c.Request.Context(), &service.RefundInput{
+		TradeNo:      req.TradeNo,
+		RefundAmount: amountCents,
+		RefundReason: req.RefundReason,
 	})
-	repository.RecordEvent(h.db, model.EventRefund, model.ChannelAlipay,
-		payment.ID, string(respJSON),
-		map[string]interface{}{"refund_fee": resp.RefundFee, "trade_no": resp.TradeNo}, "")
-
-	response.Success(c, gin.H{
-		"message":     "refund success",
-		"channel":     "alipay",
-		"trade_no":    resp.TradeNo,
-		"refund_fee":  resp.RefundFee,
-		"fund_change": resp.FundChange,
-	})
-}
-
-func wechatRefund(c *gin.Context, payment *model.Payment, amount, reason, outReqNo string, ctx context.Context, h *Handler) {
-	mchID := os.Getenv("WECHAT_MCH_ID")
-	serialNo := os.Getenv("WECHAT_SERIAL_NO")
-	apiV3Key := os.Getenv("WECHAT_API_V3_KEY")
-	privateKey := resolveWechatAdminKey()
-	if mchID == "" || apiV3Key == "" || serialNo == "" || privateKey == "" {
-		response.Error(c, http.StatusInternalServerError, "CONFIG_ERROR", "wechat not configured")
-		return
-	}
-
-	priv, err := utils.LoadPrivateKey(privateKey)
-	if err != nil {
-		response.Error(c, http.StatusInternalServerError, "CLIENT_ERROR", "failed to load wechat private key: "+err.Error())
-		return
-	}
-
-	client, err := core.NewClient(ctx,
-		option.WithWechatPayAutoAuthCipher(mchID, serialNo, priv, apiV3Key),
-	)
-	if err != nil {
-		response.Error(c, http.StatusInternalServerError, "CLIENT_ERROR", "failed to create wechat client: "+err.Error())
-		return
-	}
-
-	// amount is in yuan string, wechat needs cents
-	amountF, _ := strconv.ParseFloat(amount, 64)
-	amountCents := int64(amountF * 100)
-
-	svc := refunddomestic.RefundsApiService{Client: client}
-	req := refunddomestic.CreateRequest{
-		OutTradeNo:  core.String(payment.TradeNo),
-		OutRefundNo: core.String(outReqNo),
-		Amount:      &refunddomestic.AmountReq{Refund: core.Int64(amountCents), Total: core.Int64(payment.Amount), Currency: core.String("CNY")},
-	}
-	if reason != "" {
-		req.Reason = core.String(reason)
-	}
-
-	resp, _, err := svc.Create(ctx, req)
 	if err != nil {
 		response.Error(c, http.StatusBadGateway, "REFUND_FAILED", err.Error())
 		return
 	}
 
-	if err := h.paymentRepo.UpdateStatus(payment.ID, model.PaymentStatusRefunded, payment.ExternalID); err != nil {
-		log.Printf("[refund] update status failed: %v", err)
-	}
-
-	respJSON, _ := json.Marshal(resp)
-	h.db.Create(&model.Refund{
-		PaymentID:       payment.ID,
-		TradeNo:         payment.TradeNo,
-		Channel:         model.ChannelWechat,
-		RefundAmount:    amount,
-		RefundReason:    reason,
-		OutRequestNo:    outReqNo,
-		Status:          model.RefundStatusSuccess,
-		ChannelRefundID: *resp.RefundId,
-		ChannelTxID:     *resp.TransactionId,
-		RefundFee:       fmt.Sprintf("%.2f", float64(amountCents)/100),
-		ResponseData:    respJSON,
-	})
-	repository.RecordEvent(h.db, model.EventRefund, model.ChannelWechat,
-		payment.ID, string(respJSON),
-		map[string]interface{}{"refund_id": *resp.RefundId, "status": string(*resp.Status)}, "")
-
 	response.Success(c, gin.H{
-		"message":        "refund success",
-		"channel":        "wechat",
-		"refund_id":      *resp.RefundId,
-		"out_refund_no":  *resp.OutRefundNo,
-		"transaction_id": *resp.TransactionId,
-		"status":         string(*resp.Status),
+		"message":         "refund success",
+		"channel":         result.Payment.Channel,
+		"refund_id":       result.Refund.ID.String(),
+		"refund_fee":      result.Refund.RefundFee,
+		"channel_refund_id": result.Refund.ChannelRefundID,
 	})
 }
 
-func resolveAdminKey() string {
-	if k := os.Getenv("ALIPAY_PRIVATE_KEY"); k != "" {
-		return k
+// ---- Subscription Plans ----
+
+func (h *Handler) ListPlans(c *gin.Context) {
+	plans, err := h.planRepo.ListAll()
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		return
 	}
-	if p := os.Getenv("ALIPAY_PRIVATE_KEY_PATH"); p != "" {
-		data, _ := os.ReadFile(p)
-		return string(data)
-	}
-	return ""
+	response.Success(c, plans)
 }
 
-func resolveWechatAdminKey() string {
-	if k := os.Getenv("WECHAT_PRIVATE_KEY"); k != "" {
-		return k
+func (h *Handler) CreatePlan(c *gin.Context) {
+	var req struct {
+		Name        string `json:"name"`
+		Amount      int64  `json:"amount"`
+		Currency    string `json:"currency"`
+		Interval    string `json:"interval"`
+		Description string `json:"description"`
 	}
-	if p := os.Getenv("WECHAT_PRIVATE_KEY_PATH"); p != "" {
-		data, _ := os.ReadFile(p)
-		return string(data)
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, http.StatusBadRequest, "INVALID_BODY", err.Error())
+		return
 	}
-	return ""
+	if req.Name == "" || req.Amount <= 0 || req.Interval == "" {
+		response.Error(c, http.StatusBadRequest, "INVALID_BODY", "name, amount, interval are required")
+		return
+	}
+	if req.Currency == "" {
+		req.Currency = "CNY"
+	}
+
+	plan := &model.SubscriptionPlan{
+		Name:        req.Name,
+		Amount:      req.Amount,
+		Currency:    req.Currency,
+		Interval:    req.Interval,
+		Description: req.Description,
+		Status:      model.PlanStatusActive,
+	}
+	if err := h.planRepo.Create(plan); err != nil {
+		response.Error(c, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		return
+	}
+	response.Success(c, plan)
 }
 
-var _ = json.Marshal
+func (h *Handler) UpdatePlan(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, "INVALID_ID", "invalid plan id")
+		return
+	}
+
+	var req struct {
+		Name        *string `json:"name"`
+		Amount      *int64  `json:"amount"`
+		Currency    *string `json:"currency"`
+		Interval    *string `json:"interval"`
+		Description *string `json:"description"`
+		Status      *string `json:"status"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, http.StatusBadRequest, "INVALID_BODY", err.Error())
+		return
+	}
+
+	updates := map[string]interface{}{}
+	if req.Name != nil {
+		updates["name"] = *req.Name
+	}
+	if req.Amount != nil {
+		updates["amount"] = *req.Amount
+	}
+	if req.Currency != nil {
+		updates["currency"] = *req.Currency
+	}
+	if req.Interval != nil {
+		updates["interval"] = *req.Interval
+	}
+	if req.Description != nil {
+		updates["description"] = *req.Description
+	}
+	if req.Status != nil {
+		updates["status"] = *req.Status
+	}
+
+	if len(updates) == 0 {
+		response.Error(c, http.StatusBadRequest, "INVALID_BODY", "no fields to update")
+		return
+	}
+
+	if err := h.planRepo.Update(id, updates); err != nil {
+		response.Error(c, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		return
+	}
+
+	response.Success(c, gin.H{"updated": true})
+}

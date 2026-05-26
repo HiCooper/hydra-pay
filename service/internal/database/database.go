@@ -40,6 +40,21 @@ func Connect(cfg *config.Config) (*gorm.DB, error) {
 	if err := db.AutoMigrate(&model.ScheduledTask{}); err != nil {
 		return nil, err
 	}
+	if err := db.AutoMigrate(&model.CheckoutSession{}); err != nil {
+		return nil, err
+	}
+	if err := db.AutoMigrate(&model.IdempotencyRecord{}); err != nil {
+		return nil, err
+	}
+	if err := db.AutoMigrate(&model.SubscriptionPlan{}); err != nil {
+		return nil, err
+	}
+	if err := db.AutoMigrate(&model.Subscription{}); err != nil {
+		return nil, err
+	}
+	if err := db.AutoMigrate(&model.MerchantOnboarding{}); err != nil {
+		return nil, err
+	}
 
 	log.Println("[db] connected and migrated")
 	return db, nil
