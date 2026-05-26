@@ -457,7 +457,7 @@ func (h *Handler) GetOrder(c *gin.Context) {
 	var alipayCbs []model.AlipayCallback
 	h.db.Where("payment_id = ?", id).Order("created_at DESC").Find(&alipayCbs)
 
-	var wechatCbs []model.WeChatCallback
+	var wechatCbs []model.WechatPayCallback
 	h.db.Where("payment_id = ?", id).Order("created_at DESC").Find(&wechatCbs)
 
 	var refunds []model.Refund
@@ -768,6 +768,7 @@ func (h *Handler) ListPlans(c *gin.Context) {
 func (h *Handler) CreatePlan(c *gin.Context) {
 	var req struct {
 		Name        string `json:"name"`
+		MerchantID  string `json:"merchant_id"`
 		Amount      int64  `json:"amount"`
 		Currency    string `json:"currency"`
 		Interval    string `json:"interval"`
@@ -777,15 +778,22 @@ func (h *Handler) CreatePlan(c *gin.Context) {
 		response.Error(c, http.StatusBadRequest, "INVALID_BODY", err.Error())
 		return
 	}
-	if req.Name == "" || req.Amount <= 0 || req.Interval == "" {
-		response.Error(c, http.StatusBadRequest, "INVALID_BODY", "name, amount, interval are required")
+	if req.Name == "" || req.Amount <= 0 || req.Interval == "" || req.MerchantID == "" {
+		response.Error(c, http.StatusBadRequest, "INVALID_BODY", "name, amount, interval, merchant_id are required")
 		return
 	}
 	if req.Currency == "" {
 		req.Currency = "CNY"
 	}
 
+	merchantID, err := uuid.Parse(req.MerchantID)
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, "INVALID_ID", "invalid merchant_id")
+		return
+	}
+
 	plan := &model.SubscriptionPlan{
+		MerchantID:  merchantID,
 		Name:        req.Name,
 		Amount:      req.Amount,
 		Currency:    req.Currency,

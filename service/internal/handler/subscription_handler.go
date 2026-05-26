@@ -72,7 +72,7 @@ func (h *SubscriptionHandler) CreateSubscription(c *gin.Context) {
 	sub := &model.Subscription{
 		AppID:              appID.(uuid.UUID),
 		UserID:             req.UserID,
-		PlanID:             plan.ID,
+		PlanID:             plan.ID.String(),
 		Status:             model.SubscriptionStatusActive,
 		CurrentPeriodStart: now,
 		CurrentPeriodEnd:   service.CalculatePeriodEnd(now, plan.Interval),
@@ -85,7 +85,7 @@ func (h *SubscriptionHandler) CreateSubscription(c *gin.Context) {
 
 	response.Success(c, gin.H{
 		"id":                   sub.ID.String(),
-		"plan_id":              sub.PlanID.String(),
+		"plan_id":              sub.PlanID,
 		"plan_name":            plan.Name,
 		"user_id":              sub.UserID,
 		"status":               sub.Status,

@@ -33,7 +33,7 @@ func Connect(cfg *config.Config) (*gorm.DB, error) {
 	if err := db.AutoMigrate(&model.AlipayCallback{}); err != nil {
 		return nil, err
 	}
-	if err := db.AutoMigrate(&model.WeChatCallback{}); err != nil {
+	if err := db.AutoMigrate(&model.WechatPayCallback{}); err != nil {
 		return nil, err
 	}
 	if err := db.AutoMigrate(&model.Refund{}); err != nil {

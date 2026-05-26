@@ -7,9 +7,9 @@ import (
 	"gorm.io/datatypes"
 )
 
-// WeChatCallback stores every field from a WeChat Pay V3 callback notification
+// WechatPayCallback stores every field from a WeChat Pay V3 callback notification
 // after AES-GCM decryption. Notification ID is unique for idempotency.
-type WeChatCallback struct {
+type WechatPayCallback struct {
 	ID        uuid.UUID `gorm:"type:uuid;default:gen_random_uuid();primaryKey"`
 	PaymentID uuid.UUID `gorm:"type:uuid;not null;index"`
 

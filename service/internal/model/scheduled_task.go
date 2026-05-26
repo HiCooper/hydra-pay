@@ -16,9 +16,9 @@ const (
 // ScheduledTask is a lightweight delayed task — used for order timeout checks.
 type ScheduledTask struct {
 	ID          uuid.UUID `gorm:"type:uuid;default:gen_random_uuid();primaryKey"`
-	TaskType    string    `gorm:"type:varchar(64);not null;index"`
+	TaskType    string    `gorm:"type:varchar(64);not null;index:idx_task_scheduler,priority:1"`
 	ReferenceID uuid.UUID `gorm:"type:uuid;not null;index"` // payment_id
-	ExecuteAt   time.Time `gorm:"not null;index"`
-	Status      string    `gorm:"type:varchar(32);default:pending;index"` // pending / done / cancelled
+	ExecuteAt   time.Time `gorm:"not null;index:idx_task_scheduler,priority:3"`
+	Status      string    `gorm:"type:varchar(32);default:pending;index:idx_task_scheduler,priority:2"` // pending / done / cancelled
 	CreatedAt   time.Time
 }

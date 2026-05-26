@@ -125,9 +125,10 @@ func (s *PaymentService) Refund(ctx context.Context, input *RefundInput) (*Refun
 
 	refund := &model.Refund{
 		PaymentID:    payment.ID,
+		AppID:        payment.AppID,
 		TradeNo:      payment.TradeNo,
 		Channel:      payment.Channel,
-		RefundAmount: fmt.Sprintf("%.2f", float64(input.RefundAmount)/100),
+		RefundAmount: input.RefundAmount,
 		RefundReason: input.RefundReason,
 		OutRequestNo: outReqNo,
 		Status:       model.RefundStatusProcessing,
@@ -138,7 +139,7 @@ func (s *PaymentService) Refund(ctx context.Context, input *RefundInput) (*Refun
 
 	adapter, err := GetAdapter(payment.Channel, s.cfg)
 	if err != nil {
-		s.refundRepo.UpdateStatus(refund.ID, model.RefundStatusFailed, "", "", err.Error())
+			s.refundRepo.UpdateStatus(refund.ID, model.RefundStatusFailed, "", 0, err.Error())
 		repository.RecordEvent(s.db, model.EventRefund, payment.Channel,
 			payment.ID, "", nil, err.Error())
 		return nil, errors.Wrap(errors.ChannelError, "failed to init channel adapter", err)
@@ -153,19 +154,18 @@ func (s *PaymentService) Refund(ctx context.Context, input *RefundInput) (*Refun
 		OutRequestNo: outReqNo,
 	})
 	if err != nil {
-		s.refundRepo.UpdateStatus(refund.ID, model.RefundStatusFailed, "", "", err.Error())
+			s.refundRepo.UpdateStatus(refund.ID, model.RefundStatusFailed, "", 0, err.Error())
 		repository.RecordEvent(s.db, model.EventRefund, payment.Channel,
 			payment.ID, "", nil, err.Error())
 		return nil, errors.Wrap(errors.ChannelError, "refund failed", err)
 	}
 
-	refundFeeStr := fmt.Sprintf("%.2f", float64(chResp.RefundFee)/100)
-	s.refundRepo.UpdateStatus(refund.ID, model.RefundStatusSuccess, chResp.ChannelRefundID, refundFeeStr, "")
+	s.refundRepo.UpdateStatus(refund.ID, model.RefundStatusSuccess, chResp.ChannelRefundID, chResp.RefundFee, "")
 
 	respJSON, _ := json.Marshal(chResp.RawResponse)
 	refund.Status = model.RefundStatusSuccess
 	refund.ChannelRefundID = chResp.ChannelRefundID
-	refund.RefundFee = refundFeeStr
+	refund.RefundFee = chResp.RefundFee
 	refund.ResponseData = respJSON
 
 	if err := s.repo.UpdateStatus(payment.ID, model.PaymentStatusRefunded, payment.ExternalID); err != nil {
@@ -176,7 +176,7 @@ func (s *PaymentService) Refund(ctx context.Context, input *RefundInput) (*Refun
 	repository.RecordEvent(s.db, model.EventRefund, payment.Channel,
 		payment.ID, string(respJSON),
 		map[string]interface{}{
-			"refund_fee":  refundFeeStr,
+			"refund_fee":  chResp.RefundFee,
 			"refund_id":   chResp.ChannelRefundID,
 		}, "")
 
@@ -579,9 +579,9 @@ func checkDedup(db *gorm.DB, result *channel.CallbackResult) bool {
 		db.Model(&model.AlipayCallback{}).Where("notify_id = ?", result.AlipayCallback.NotifyID).Count(&count)
 		return count > 0
 	}
-	if result.WeChatCallback != nil && result.WeChatCallback.NotificationID != "" {
+	if result.WechatPayCallback != nil && result.WechatPayCallback.NotificationID != "" {
 		var count int64
-		db.Model(&model.WeChatCallback{}).Where("notification_id = ?", result.WeChatCallback.NotificationID).Count(&count)
+		db.Model(&model.WechatPayCallback{}).Where("notification_id = ?", result.WechatPayCallback.NotificationID).Count(&count)
 		return count > 0
 	}
 	return false
@@ -595,9 +595,9 @@ func saveCallback(db *gorm.DB, paymentID uuid.UUID, result *channel.CallbackResu
 			logger.Error(context.Background(), "failed to save alipay callback", "error", err)
 		}
 	}
-	if result.WeChatCallback != nil {
-		result.WeChatCallback.PaymentID = paymentID
-		if err := db.Create(result.WeChatCallback).Error; err != nil {
+	if result.WechatPayCallback != nil {
+		result.WechatPayCallback.PaymentID = paymentID
+		if err := db.Create(result.WechatPayCallback).Error; err != nil {
 			logger.Error(context.Background(), "failed to save wechat callback", "error", err)
 		}
 	}

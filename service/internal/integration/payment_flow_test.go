@@ -197,8 +197,9 @@ func TestPaymentListRefunds(t *testing.T) {
 	refund := &model.Refund{
 		ID:           uuid.New(),
 		PaymentID:    paymentID,
+		AppID:        appID,
 		Channel:      "alipay",
-		RefundAmount: "50",
+		RefundAmount: 50,
 		OutRequestNo: "rf_" + uuid.New().String(),
 		Status:       model.RefundStatusSuccess,
 	}
@@ -230,7 +231,7 @@ func TestPaymentListRefunds(t *testing.T) {
 		Data struct {
 			PaymentID string `json:"payment_id"`
 			Refunds   []struct {
-				RefundAmount string `json:"refund_amount"`
+				RefundAmount int64 `json:"refund_amount"`
 			} `json:"refunds"`
 		} `json:"data"`
 	}
@@ -240,8 +241,8 @@ func TestPaymentListRefunds(t *testing.T) {
 	if len(resp.Data.Refunds) != 1 {
 		t.Fatalf("expected 1 refund, got %d", len(resp.Data.Refunds))
 	}
-	if resp.Data.Refunds[0].RefundAmount != "50" {
-		t.Fatalf("expected refund amount 50, got %s", resp.Data.Refunds[0].RefundAmount)
+	if resp.Data.Refunds[0].RefundAmount != 50 {
+		t.Fatalf("expected refund amount 50, got %d", resp.Data.Refunds[0].RefundAmount)
 	}
 
 	t.Log("refund list test passed")

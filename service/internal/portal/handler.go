@@ -186,7 +186,7 @@ func (h *Handler) OrderDetail(c *gin.Context) {
 	events, _ := h.eventRepo.ListByPayment(id)
 	var alipayCbs []model.AlipayCallback
 	h.db.Where("payment_id = ?", id).Order("created_at DESC").Find(&alipayCbs)
-	var wechatCbs []model.WeChatCallback
+	var wechatCbs []model.WechatPayCallback
 	h.db.Where("payment_id = ?", id).Order("created_at DESC").Find(&wechatCbs)
 	var refunds []model.Refund
 	h.db.Where("payment_id = ?", id).Order("created_at DESC").Find(&refunds)

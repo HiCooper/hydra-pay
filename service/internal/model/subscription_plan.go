@@ -14,6 +14,7 @@ const (
 // SubscriptionPlan defines a recurring billing plan (e.g., "Pro Monthly").
 type SubscriptionPlan struct {
 	ID          uuid.UUID `gorm:"type:uuid;default:gen_random_uuid();primaryKey"`
+	MerchantID  uuid.UUID `gorm:"type:uuid;not null;index"`
 	Name        string    `gorm:"type:varchar(255);not null"`
 	Amount      int64     `gorm:"not null"`
 	Currency    string    `gorm:"type:varchar(10);not null;default:CNY"`

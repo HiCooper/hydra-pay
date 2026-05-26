@@ -499,7 +499,7 @@ func TestListSubscriptions(t *testing.T) {
 	sub := model.Subscription{
 		AppID:              app.ID,
 		UserID:             "user1",
-		PlanID:             planID,
+		PlanID:             planID.String(),
 		Status:             model.SubscriptionStatusActive,
 		CurrentPeriodStart: now,
 		CurrentPeriodEnd:   now.Add(30 * 24 * time.Hour),

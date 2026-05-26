@@ -48,7 +48,7 @@ type CallbackResult struct {
 
 	// Channel-specific callback records — set by the respective adapter.
 	AlipayCallback *model.AlipayCallback
-	WeChatCallback *model.WeChatCallback
+	WechatPayCallback *model.WechatPayCallback
 }
 
 // RefundRequest is the unified request to create a refund on any channel.

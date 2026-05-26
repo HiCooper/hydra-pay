@@ -25,14 +25,14 @@ const (
 type Payment struct {
 	ID          uuid.UUID      `gorm:"type:uuid;default:gen_random_uuid();primaryKey"`
 	TradeNo     string         `gorm:"type:varchar(32);not null;uniqueIndex"`
-	AppID       uuid.UUID      `gorm:"type:uuid;not null;index"`
-	UserID      string         `gorm:"type:varchar(255);not null"`
+	AppID       uuid.UUID      `gorm:"type:uuid;not null;index:idx_app_status,priority:1"`
+	UserID      string         `gorm:"type:varchar(255);not null;index"`
 	PlanID      string         `gorm:"type:varchar(255)"`
 	Amount      int64          `gorm:"not null"`
 	Currency    string         `gorm:"type:varchar(10);not null;default:CNY"`
 	Channel     string         `gorm:"type:varchar(50);not null"`
-	Status      string         `gorm:"type:varchar(20);not null;default:pending"`
-	ExternalID  string         `gorm:"type:varchar(255)"`
+	Status      string         `gorm:"type:varchar(20);not null;default:pending;index:idx_app_status,priority:2"`
+	ExternalID  string         `gorm:"type:varchar(255);index"`
 	PaymentURL  string         `gorm:"type:varchar(1000)"`
 	QRCodeURL   string         `gorm:"type:varchar(1000)"`
 	Description string         `gorm:"type:varchar(500)"`

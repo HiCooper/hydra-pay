@@ -43,14 +43,14 @@ func (r *RefundRepository) ListByPayment(paymentID uuid.UUID) ([]model.Refund, e
 	return refunds, nil
 }
 
-func (r *RefundRepository) UpdateStatus(id uuid.UUID, status, channelRefundID, refundFee, errorMsg string) error {
+func (r *RefundRepository) UpdateStatus(id uuid.UUID, status, channelRefundID string, refundFee int64, errorMsg string) error {
 	updates := map[string]interface{}{
 		"status": status,
 	}
 	if channelRefundID != "" {
 		updates["channel_refund_id"] = channelRefundID
 	}
-	if refundFee != "" {
+	if refundFee > 0 {
 		updates["refund_fee"] = refundFee
 	}
 	if errorMsg != "" {

@@ -160,12 +160,12 @@ func (h *RefundHandler) ListPaymentRefunds(c *gin.Context) {
 		ID              string `json:"refund_id"`
 		TradeNo         string `json:"trade_no"`
 		Channel         string `json:"channel"`
-		RefundAmount    string `json:"refund_amount"`
+		RefundAmount    int64  `json:"refund_amount"`
 		RefundReason    string `json:"refund_reason"`
 		OutRequestNo    string `json:"out_request_no"`
 		Status          string `json:"status"`
 		ChannelRefundID string `json:"channel_refund_id"`
-		RefundFee       string `json:"refund_fee"`
+		RefundFee       int64  `json:"refund_fee"`
 		ErrorMsg        string `json:"error_msg"`
 		CreatedAt       string `json:"created_at"`
 	}

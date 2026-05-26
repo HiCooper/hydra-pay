@@ -7,7 +7,7 @@ echo "==> 清理端口 8082 残留进程 ..."
 lsof -ti :8082 | xargs kill -9 2>/dev/null; true
 
 echo "==> 编译 pay-service ..."
-go build -o /tmp/pay-server ./cmd/server/
+CGO_ENABLED=0 go build -o /tmp/pay-server ./cmd/server/
 
 echo "==> 加载环境变量 ..."
 set -a

@@ -606,7 +606,7 @@ func (a *Adapter) VerifyCallback(ctx context.Context, data *channel.CallbackData
 
 	logger.Info(ctx, "callback verified", "out_trade_no", transaction.OutTradeNo, "transaction_id", transaction.TransactionID, "state", transaction.TradeState, "sub_mchid", transaction.SubMchid)
 
-	cb := &model.WeChatCallback{
+	cb := &model.WechatPayCallback{
 		NotificationID:      notification.ID,
 		EventType:           notification.EventType,
 		TransactionID:       transaction.TransactionID,
@@ -638,7 +638,7 @@ func (a *Adapter) VerifyCallback(ctx context.Context, data *channel.CallbackData
 		Status:         mapWechatTradeState(transaction.TradeState),
 		Amount:         transaction.Amount.Total,
 		Currency:       transaction.Amount.Currency,
-		WeChatCallback: cb,
+		WechatPayCallback: cb,
 	}, nil
 }
 
