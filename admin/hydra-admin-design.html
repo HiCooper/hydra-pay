@@ -1,0 +1,1994 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Hydra Admin 交互设计文档</title>
+  <style>
+    :root {
+      --primary: #1890ff;
+      --success: #52c41a;
+      --warning: #faad14;
+      --danger: #ff4d4f;
+      --text: #333;
+      --text-secondary: #666;
+      --bg: #f5f5f5;
+      --border: #e8e8e8;
+      --card-bg: #fff;
+      --sidebar-width: 260px;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: var(--text); background: var(--bg); }
+
+    /* ========== 左侧固定导航 ========== */
+    .sidebar {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: var(--sidebar-width);
+      height: 100vh;
+      background: linear-gradient(180deg, #1a1f36 0%, #2d3748 100%);
+      color: #fff;
+      overflow-y: auto;
+      z-index: 1000;
+      box-shadow: 4px 0 20px rgba(0,0,0,0.15);
+    }
+    .sidebar-header {
+      padding: 24px 20px;
+      border-bottom: 1px solid rgba(255,255,255,0.1);
+    }
+    .sidebar-header h1 {
+      font-size: 1.3em;
+      color: #fff;
+      margin-bottom: 4px;
+      border: none;
+      padding: 0;
+    }
+    .sidebar-header p {
+      font-size: 0.75em;
+      color: rgba(255,255,255,0.6);
+    }
+    .sidebar-nav {
+      padding: 16px 0;
+    }
+    .nav-section {
+      margin-bottom: 20px;
+    }
+    .nav-section-title {
+      padding: 8px 20px;
+      font-size: 0.7em;
+      text-transform: uppercase;
+      color: rgba(255,255,255,0.4);
+      letter-spacing: 1px;
+    }
+    .nav-item {
+      display: flex;
+      align-items: center;
+      padding: 12px 20px;
+      color: rgba(255,255,255,0.7);
+      text-decoration: none;
+      transition: all 0.2s;
+      cursor: pointer;
+      border-left: 3px solid transparent;
+    }
+    .nav-item:hover {
+      background: rgba(255,255,255,0.08);
+      color: #fff;
+    }
+    .nav-item.active {
+      background: rgba(24,144,255,0.2);
+      color: var(--primary);
+      border-left-color: var(--primary);
+    }
+    .nav-item .num {
+      display: inline-block;
+      width: 24px;
+      height: 24px;
+      background: rgba(255,255,255,0.1);
+      border-radius: 6px;
+      text-align: center;
+      line-height: 24px;
+      font-size: 0.8em;
+      margin-right: 12px;
+    }
+    .nav-item.active .num {
+      background: var(--primary);
+      color: #fff;
+    }
+
+    /* ========== 主内容区域 ========== */
+    .main-content {
+      margin-left: var(--sidebar-width);
+      padding: 30px 40px;
+      max-width: 1200px;
+    }
+    .module { background: var(--card-bg); border-radius: 12px; padding: 24px; margin-bottom: 24px; box-shadow: 0 2px 12px rgba(0,0,0,0.08); }
+    .page-intro { background: linear-gradient(135deg, #e6f7ff 0%, #bae7ff 100%); padding: 20px 24px; border-radius: 12px; margin-bottom: 24px; }
+    .page-intro h2 { border: none; margin: 0 0 10px; background: transparent; }
+    .page-intro p { color: var(--text-secondary); margin: 0; }
+    h1 { font-size: 2em; color: var(--primary); margin-bottom: 16px; }
+    h2 { font-size: 1.4em; color: var(--text); margin: 0 0 16px; padding: 12px 16px; background: var(--card-bg); border-left: 4px solid var(--primary); border-radius: 0 8px 8px 0; }
+    h3 { font-size: 1.1em; color: var(--text); margin: 24px 0 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+    h4 { font-size: 1em; color: var(--text); margin: 16px 0 8px; }
+
+    table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 13px; }
+    th, td { border: 1px solid var(--border); padding: 12px; text-align: left; }
+    th { background: #fafafa; font-weight: 600; color: var(--text); }
+    tr:hover { background: #f5f5f5; }
+    tr:nth-child(even) { background: #fafafa; }
+    tr:nth-child(even):hover { background: #f0f0f0; }
+
+    .btn { display: inline-block; padding: 4px 12px; border-radius: 4px; font-size: 13px; cursor: pointer; border: 1px solid transparent; }
+    .btn-primary { background: var(--primary); color: #fff; border-color: var(--primary); }
+    .btn-success { background: var(--success); color: #fff; border-color: var(--success); }
+    .btn-warning { background: var(--warning); color: #fff; border-color: var(--warning); }
+    .btn-danger { background: var(--danger); color: #fff; border-color: var(--danger); }
+    .btn-default { background: #fff; color: var(--text); border-color: var(--border); }
+    .btn-link { background: transparent; color: var(--primary); border: none; padding: 0; }
+    .btn-link.danger { color: var(--danger); }
+
+    .badge { display: inline-block; padding: 2px 10px; border-radius: 10px; font-size: 12px; }
+    .badge-green { background: #f6ffed; color: var(--success); border: 1px solid var(--success); }
+    .badge-blue { background: #e6f7ff; color: var(--primary); border: 1px solid var(--primary); }
+    .badge-orange { background: #fff7e6; color: var(--warning); border: 1px solid var(--warning); }
+    .badge-red { background: #fff2f0; color: var(--danger); border: 1px solid var(--danger); }
+    .badge-gray { background: #f5f5f5; color: var(--text-secondary); border: 1px solid var(--border); }
+    .badge-purple { background: #f9f0ff; color: #722ed1; border: 1px solid #722ed1; }
+    .badge-cyan { background: #e6fffb; color: #08979c; border: 1px solid #08979c; }
+
+    .flow { display: flex; flex-wrap: wrap; gap: 10px; margin: 16px 0; }
+    .flow-item { background: #fff; padding: 8px 16px; border-radius: 20px; border: 1px solid var(--border); font-size: 13px; }
+    .flow-arrow { color: var(--primary); font-size: 18px; align-self: center; }
+
+    .note { background: #fffbe6; padding: 12px 16px; border-radius: 6px; border-left: 4px solid var(--warning); margin: 12px 0; font-size: 13px; }
+    .tip { background: #f6ffed; padding: 12px 16px; border-radius: 6px; border-left: 4px solid var(--success); margin: 12px 0; font-size: 13px; }
+    .function-group { margin: 20px 0; padding: 16px; background: #fafafa; border-radius: 8px; }
+    .function-title { font-weight: 600; margin-bottom: 12px; color: var(--primary); font-size: 1em; }
+    .interaction { padding: 12px; background: #fff; border-radius: 6px; margin: 8px 0; border-left: 3px solid var(--primary); }
+    .interaction-step { display: flex; align-items: flex-start; margin: 6px 0; gap: 12px; }
+    .step-num { background: var(--primary); color: #fff; width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; flex-shrink: 0; }
+
+    .modal-preview { background: #f5f5f5; padding: 16px; border-radius: 8px; margin: 12px 0; }
+    .modal-preview h4 { margin-bottom: 12px; color: var(--text); }
+    .form-item { margin: 12px 0; }
+    .form-item label { display: block; margin-bottom: 6px; font-weight: 500; }
+    .input-demo { border: 1px solid var(--border); padding: 8px 12px; border-radius: 6px; width: 100%; }
+    .select-demo { border: 1px solid var(--border); padding: 8px 12px; border-radius: 6px; width: 100%; }
+
+    /* ========== 付费墙编辑器三栏可视化 ========== */
+    .editor-mockup {
+      background: linear-gradient(135deg, #1a1f36 0%, #2d3748 100%);
+      border-radius: 12px;
+      padding: 20px;
+      margin: 20px 0;
+      position: relative;
+    }
+    .editor-mockup-title {
+      color: #fff;
+      font-size: 1.1em;
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .editor-mockup-title::before {
+      content: '';
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      background: var(--primary);
+      border-radius: 50%;
+    }
+    .editor-columns {
+      display: grid;
+      grid-template-columns: 200px 1fr 220px;
+      gap: 16px;
+      min-height: 400px;
+    }
+    .editor-col {
+      background: rgba(255,255,255,0.05);
+      border-radius: 10px;
+      padding: 16px;
+      border: 1px solid rgba(255,255,255,0.1);
+    }
+    .editor-col-title {
+      color: rgba(255,255,255,0.6);
+      font-size: 0.8em;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-bottom: 12px;
+      text-align: center;
+    }
+    .editor-col-left {
+      width: 200px;
+      flex-shrink: 0;
+    }
+    .editor-col-center {
+      flex: 1;
+    }
+    .editor-col-right {
+      width: 220px;
+      flex-shrink: 0;
+    }
+    .component-btn {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 12px;
+      background: rgba(255,255,255,0.08);
+      border-radius: 6px;
+      margin-bottom: 8px;
+      color: rgba(255,255,255,0.8);
+      font-size: 0.85em;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .component-btn:hover {
+      background: rgba(24,144,255,0.3);
+      color: #fff;
+    }
+    .component-btn .icon {
+      width: 28px;
+      height: 28px;
+      background: rgba(255,255,255,0.1);
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .preview-block {
+      background: rgba(255,255,255,0.95);
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 12px;
+      color: #333;
+    }
+    .preview-block-header {
+      font-weight: 600;
+      margin-bottom: 8px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .preview-block-card {
+      background: #f5f5f5;
+      border-radius: 6px;
+      padding: 12px;
+      margin-bottom: 8px;
+      display: flex;
+      justify-content: space-between;
+    }
+    .preview-block-btn {
+      background: var(--primary);
+      color: #fff;
+      padding: 10px 24px;
+      border-radius: 6px;
+      text-align: center;
+      font-weight: 500;
+    }
+    .preview-block.selected {
+      box-shadow: 0 0 0 2px var(--primary);
+    }
+    .preview-drag-handle {
+      position: absolute;
+      left: 8px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: #999;
+      cursor: grab;
+    }
+    .preview-delete-btn {
+      position: absolute;
+      right: 8px;
+      top: 8px;
+      width: 20px;
+      height: 20px;
+      background: var(--danger);
+      color: #fff;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      opacity: 0;
+      transition: opacity 0.2s;
+    }
+    .preview-block:hover .preview-delete-btn {
+      opacity: 1;
+    }
+    .config-group {
+      margin-bottom: 16px;
+    }
+    .config-label {
+      color: rgba(255,255,255,0.5);
+      font-size: 0.75em;
+      margin-bottom: 6px;
+    }
+    .config-input {
+      width: 100%;
+      padding: 8px 10px;
+      background: rgba(255,255,255,0.1);
+      border: 1px solid rgba(255,255,255,0.2);
+      border-radius: 6px;
+      color: #fff;
+      font-size: 0.85em;
+    }
+    .config-row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+    .config-color {
+      width: 32px;
+      height: 32px;
+      border-radius: 6px;
+      border: 2px solid rgba(255,255,255,0.3);
+      cursor: pointer;
+    }
+    .config-slider {
+      width: 100%;
+      margin: 8px 0;
+    }
+    .device-switcher {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+    .device-btn {
+      padding: 6px 12px;
+      background: rgba(255,255,255,0.1);
+      border: none;
+      border-radius: 6px;
+      color: rgba(255,255,255,0.6);
+      cursor: pointer;
+      font-size: 0.85em;
+    }
+    .device-btn.active {
+      background: var(--primary);
+      color: #fff;
+    }
+
+    /* ========== 通用页面示意图 ========== */
+    .page-mockup {
+      background: linear-gradient(135deg, #1a1f36 0%, #2d3748 100%);
+      border-radius: 12px;
+      padding: 20px;
+      margin: 20px 0;
+      position: relative;
+    }
+    .page-mockup-title {
+      color: #fff;
+      font-size: 1.1em;
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .page-mockup-title::before {
+      content: '';
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      background: var(--primary);
+      border-radius: 50%;
+    }
+    .mockup-container {
+      background: rgba(255,255,255,0.03);
+      border-radius: 10px;
+      padding: 16px;
+      border: 1px solid rgba(255,255,255,0.1);
+    }
+
+    /* Dashboard 统计卡片 */
+    .stat-cards {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+      margin-bottom: 20px;
+    }
+    .stat-card {
+      background: rgba(255,255,255,0.95);
+      border-radius: 10px;
+      padding: 16px;
+      position: relative;
+    }
+    .stat-card-title {
+      font-size: 12px;
+      color: #666;
+      margin-bottom: 8px;
+    }
+    .stat-card-value {
+      font-size: 24px;
+      font-weight: 700;
+      color: #333;
+      margin-bottom: 4px;
+    }
+    .stat-card-change {
+      font-size: 12px;
+      color: #52c41a;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .stat-card-icon {
+      position: absolute;
+      top: 16px;
+      right: 16px;
+      width: 40px;
+      height: 40px;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+    }
+
+    /* Dashboard 图表区域 */
+    .dashboard-charts {
+      display: grid;
+      grid-template-columns: 2fr 1fr;
+      gap: 16px;
+    }
+    .chart-box {
+      background: rgba(255,255,255,0.95);
+      border-radius: 10px;
+      padding: 16px;
+    }
+    .chart-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: #333;
+      margin-bottom: 12px;
+    }
+    .chart-placeholder {
+      height: 120px;
+      background: linear-gradient(90deg, #f0f0f0 0%, #e0e0e0 50%, #f0f0f0 100%);
+      background-size: 200% 100%;
+      border-radius: 6px;
+      position: relative;
+      overflow: hidden;
+    }
+    .chart-line {
+      position: absolute;
+      bottom: 20px;
+      left: 10%;
+      right: 10%;
+      height: 60px;
+      border-bottom: 2px dashed #ccc;
+    }
+    .chart-dot {
+      position: absolute;
+      width: 8px;
+      height: 8px;
+      background: var(--primary);
+      border-radius: 50%;
+      bottom: 30px;
+    }
+    .chart-dot:nth-child(1) { left: 15%; }
+    .chart-dot:nth-child(2) { left: 35%; bottom: 50px; }
+    .chart-dot:nth-child(3) { left: 55%; bottom: 40px; }
+    .chart-dot:nth-child(4) { left: 75%; bottom: 35px; }
+    .chart-dot:nth-child(5) { left: 90%; bottom: 45px; }
+
+    /* 表格页面通用样式 */
+    .table-toolbar {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+    .search-input {
+      flex: 1;
+      padding: 10px 16px;
+      background: #fff;
+      border: 1px solid rgba(255,255,255,0.2);
+      border-radius: 8px;
+      color: #333;
+      font-size: 13px;
+      max-width: 300px;
+    }
+    .primary-btn {
+      background: var(--primary);
+      color: #fff;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 8px;
+      font-size: 13px;
+      cursor: pointer;
+    }
+    .data-table {
+      width: 100%;
+      background: rgba(255,255,255,0.95);
+      border-radius: 10px;
+      overflow: hidden;
+    }
+    .data-table table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 0;
+      font-size: 12px;
+    }
+    .data-table th {
+      background: #fafafa;
+      padding: 12px;
+      text-align: left;
+      font-weight: 600;
+      color: #333;
+    }
+    .data-table td {
+      padding: 12px;
+      border-bottom: 1px solid #f0f0f0;
+      color: #333;
+    }
+    .data-table tr:last-child td {
+      border-bottom: none;
+    }
+
+    /* Tag 样式 */
+    .mini-tag {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+    }
+    .mini-tag-green { background: #d9f7be; color: #52c41a; }
+    .mini-tag-blue { background: #bae7ff; color: #1890ff; }
+    .mini-tag-orange { background: #ffe58f; color: #fa8c16; }
+    .mini-tag-gray { background: #f5f5f5; color: #666; }
+    .mini-tag-red { background: #ffccc7; color: #ff4d4f; }
+    .mini-tag-purple { background: #d9f0ff; color: #722ed1; }
+
+    /* Switch 开关 */
+    .mini-switch {
+      width: 36px;
+      height: 20px;
+      background: #d9d9d9;
+      border-radius: 10px;
+      position: relative;
+      cursor: pointer;
+    }
+    .mini-switch.active {
+      background: var(--primary);
+    }
+    .mini-switch::after {
+      content: '';
+      position: absolute;
+      width: 16px;
+      height: 16px;
+      background: #fff;
+      border-radius: 50%;
+      top: 2px;
+      left: 2px;
+      transition: all 0.2s;
+    }
+    .mini-switch.active::after {
+      left: 18px;
+    }
+
+    /* Settings 卡片布局 */
+    .settings-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+    }
+    .settings-card {
+      background: rgba(255,255,255,0.95);
+      border-radius: 10px;
+      padding: 20px;
+    }
+    .settings-card-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+    .settings-card-icon {
+      width: 40px;
+      height: 40px;
+      background: #e6f7ff;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+    }
+    .settings-card-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: #333;
+    }
+    .settings-card-desc {
+      font-size: 12px;
+      color: #666;
+      margin-bottom: 16px;
+    }
+    .settings-card-btn {
+      background: #f5f5f5;
+      color: var(--primary);
+      border: none;
+      padding: 8px 16px;
+      border-radius: 6px;
+      font-size: 12px;
+      cursor: pointer;
+    }
+
+    /* 响应式 ========== */
+    @media (max-width: 900px) {
+      .sidebar {
+        transform: translateX(-100%);
+        transition: transform 0.3s;
+      }
+      .sidebar.open {
+        transform: translateX(0);
+      }
+      .main-content {
+        margin-left: 0;
+      }
+    }
+
+    /* 回到顶部按钮 */
+    .back-to-top {
+      position: fixed;
+      bottom: 30px;
+      right: 30px;
+      width: 44px;
+      height: 44px;
+      background: var(--primary);
+      color: #fff;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      box-shadow: 0 4px 12px rgba(24,144,255,0.4);
+      transition: all 0.3s;
+      z-index: 999;
+    }
+    .back-to-top:hover {
+      transform: translateY(-4px);
+      box-shadow: 0 6px 16px rgba(24,144,255,0.5);
+    }
+    .back-to-top::before {
+      content: '↑';
+      font-size: 1.5em;
+    }
+  </style>
+</head>
+<body>
+  <!-- ========== 左侧固定导航 ========== -->
+  <nav class="sidebar">
+    <div class="sidebar-header">
+      <h1>Hydra Admin</h1>
+      <p>交互设计文档 v1.0</p>
+    </div>
+    <div class="sidebar-nav">
+      <div class="nav-section">
+        <div class="nav-section-title">核心页面</div>
+        <a href="#dashboard" class="nav-item active">
+          <span class="num">1</span>仪表盘 Dashboard
+        </a>
+        <a href="#plans" class="nav-item">
+          <span class="num">2</span>商品管理 Plans
+        </a>
+        <a href="#paywalls" class="nav-item">
+          <span class="num">3</span>付费墙管理 Paywalls
+        </a>
+      </div>
+      <div class="nav-section">
+        <div class="nav-section-title">高级功能</div>
+        <a href="#paywall-editor" class="nav-item">
+          <span class="num">4</span>付费墙编辑器
+        </a>
+        <a href="#rules" class="nav-item">
+          <span class="num">5</span>Targeting Rules
+        </a>
+        <a href="#experiments" class="nav-item">
+          <span class="num">6</span>A/B 测试
+        </a>
+        <a href="#settings" class="nav-item">
+          <span class="num">7</span>设置 Settings
+        </a>
+      </div>
+      <div class="nav-section">
+        <div class="nav-section-title">附录</div>
+        <a href="#appendix" class="nav-item">
+          <span class="num">附</span>设计规范
+        </a>
+      </div>
+    </div>
+  </nav>
+
+  <!-- ========== 主内容区域 ========== -->
+  <main class="main-content">
+    <h1>Hydra Admin 交互设计文档</h1>
+    <p style="color: var(--text-secondary); margin-bottom: 30px;">版本: 1.0 | 更新日期: 2026-05-19 | 包含页面: 仪表盘、商品管理、付费墙管理、付费墙编辑器、Targeting Rules、A/B测试、设置</p>
+
+    <!-- ========== 1. 仪表盘 ========== -->
+    <div id="dashboard" class="module">
+      <div class="page-intro">
+        <h2>1. 仪表盘 (Dashboard)</h2>
+        <p>路径: / | 访问权限: 所有登录用户 | 主要功能: 展示核心业务数据、收入趋势、转化漏斗、实验效果和最近交易</p>
+      </div>
+
+      <h3>1.1 页面结构与组件</h3>
+      <!-- Dashboard 可视化示意图 -->
+      <div class="page-mockup">
+        <div class="page-mockup-title">仪表盘布局示意</div>
+        <div class="mockup-container">
+          <!-- 顶部统计卡片 -->
+          <div class="stat-cards">
+            <div class="stat-card">
+              <div class="stat-card-title">MRR 月度收入</div>
+              <div class="stat-card-value">¥72,000</div>
+              <div class="stat-card-change">▲ 10.8% 较上月</div>
+              <div class="stat-card-icon" style="background: #e6f7ff;">¥</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-card-title">ARR 年度收入</div>
+              <div class="stat-card-value">¥864K</div>
+              <div class="stat-card-change">▲ 12.3% 较上月</div>
+              <div class="stat-card-icon" style="background: #f6ffed;">📈</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-card-title">付费用户</div>
+              <div class="stat-card-value">1,258</div>
+              <div class="stat-card-change">▲ 8.5% 较上月</div>
+              <div class="stat-card-icon" style="background: #fff7e6;">👥</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-card-title">付费转化率</div>
+              <div class="stat-card-value">6.3%</div>
+              <div class="stat-card-change" style="color: #ff4d4f;">▼ 0.2% 较上月</div>
+              <div class="stat-card-icon" style="background: #fff2f0;">%</div>
+            </div>
+          </div>
+          <!-- 图表区域 -->
+          <div class="dashboard-charts">
+            <div class="chart-box">
+              <div class="chart-title">收入趋势 (MRR / ARR)</div>
+              <div class="chart-placeholder">
+                <div class="chart-line"></div>
+                <svg style="position: absolute; bottom: 20px; left: 10%; right: 10%; height: 50px;" viewBox="0 0 100 30" preserveAspectRatio="none">
+                  <path d="M0,25 L20,20 L40,18 L60,12 L80,8 L100,5" fill="none" stroke="#1890ff" stroke-width="2"/>
+                </svg>
+              </div>
+            </div>
+            <div class="chart-box">
+              <div class="chart-title">转化漏斗</div>
+              <div style="padding: 8px 0;">
+                <div style="background: #bae7ff; padding: 8px 12px; border-radius: 4px; margin-bottom: 6px; font-size: 11px; color: #333;">
+                  付费墙展示 <span style="float: right; font-weight: 600;">10,000</span>
+                </div>
+                <div style="background: #91d5ff; padding: 8px 12px; border-radius: 4px; margin-bottom: 6px; margin-left: 20px; font-size: 11px; color: #333;">
+                  点击购买 <span style="float: right; font-weight: 600;">3,500</span>
+                </div>
+                <div style="background: #69c0ff; padding: 8px 12px; border-radius: 4px; margin-bottom: 6px; margin-left: 40px; font-size: 11px; color: #333;">
+                  进入结算 <span style="float: right; font-weight: 600;">2,100</span>
+                </div>
+                <div style="background: #1890ff; padding: 8px 12px; border-radius: 4px; margin-left: 60px; font-size: 11px; color: #fff;">
+                  支付成功 <span style="float: right; font-weight: 600;">630</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <table>
+        <tr><th>组件</th><th>类型</th><th>描述</th><th>交互行为</th></tr>
+        <tr><td>顶部标题栏</td><td>静态</td><td>显示"数据概览"标题和最后更新时间</td><td>无交互</td></tr>
+        <tr><td>统计卡片 (4个)</td><td>可点击</td><td>MRR/ARR/付费用户数/付费转化率</td><td>hover 显示阴影效果，数值高亮</td></tr>
+        <tr><td>收入细分卡片 (4个)</td><td>静态</td><td>新MRR/扩展MRR/流失MRR/ARPU</td><td>hover 显示趋势指示器</td></tr>
+        <tr><td>收入趋势图表</td><td>可交互</td><td>Line Chart 展示 MRR 和 ARR 月度趋势</td><td>hover 显示 tooltip，数据点可高亮</td></tr>
+        <tr><td>转化漏斗图表</td><td>可点击</td><td>Progress Bar 展示各阶段转化</td><td>点击漏斗项弹出详情 Modal</td></tr>
+        <tr><td>用户留存趋势图表</td><td>可交互</td><td>Area Chart 展示周留存率</td><td>hover 显示 tooltip</td></tr>
+        <tr><td>实验效果列表</td><td>可点击</td><td>展示进行中的实验及其效果</td><td>点击"查看全部"跳转 /experiments</td></tr>
+        <tr><td>最近交易表格</td><td>可点击</td><td>展示最新 5 条交易记录</td><td>点击"查看全部"跳转 /transactions</td></tr>
+      </table>
+
+      <h3>1.2 统计卡片交互详情</h3>
+      <div class="function-group">
+        <div class="function-title">MRR 卡片 (月度经常性收入)</div>
+        <div class="interaction">
+          <strong>显示内容:</strong> 当前 MRR 数值 (¥72,000)、货币符号、单位<br>
+          <strong>增长指示:</strong> 绿色图标 + "+10.8%" + "较上月"文字<br>
+          <strong>hover 效果:</strong> 卡片轻微上浮 (translateY -2px)，阴影加深
+        </div>
+      </div>
+
+      <div class="function-group">
+        <div class="function-title">ARR 卡片 (年度经常性收入)</div>
+        <div class="interaction">
+          <strong>显示内容:</strong> 当前 ARR 数值 (¥864,000)，计算公式: MRR × 12<br>
+          <strong>hover 效果:</strong> 卡片轻微上浮，阴影加深
+        </div>
+      </div>
+
+      <h3>1.3 转化漏斗图表交互</h3>
+      <div class="flow">
+        <span class="flow-item">付费墙展示 (10,000)</span>
+        <span class="flow-arrow">→</span>
+        <span class="flow-item">点击购买 (3,500)</span>
+        <span class="flow-arrow">→</span>
+        <span class="flow-item">进入结算 (2,100)</span>
+        <span class="flow-arrow">→</span>
+        <span class="flow-item">支付成功 (630)</span>
+      </div>
+
+      <div class="interaction">
+        <strong>点击行为:</strong>
+        <div class="interaction-step"><span class="step-num">1</span><span>用户点击漏斗中的任意阶段 → 弹出 Modal 详情弹窗</span></div>
+        <div class="interaction-step"><span class="step-num">2</span><span>Modal 内容: 阶段名称、总次数、唯一用户数、转化率</span></div>
+        <div class="interaction-step"><span class="step-num">3</span><span>点击 Modal 外部或关闭按钮 → 关闭 Modal</span></div>
+      </div>
+
+      <div class="note">
+        <strong>漏斗阶段点击效果:</strong> 鼠标变为 pointer，背景变为淡灰色 (#f5f5f5)，表示可点击
+      </div>
+
+      <h3>1.4 最近交易表格交互</h3>
+      <table>
+        <tr><th>列名</th><th>数据类型</th><th>格式化规则</th></tr>
+        <tr><td>订单ID</td><td>string</td><td>原始显示 (tx_001)</td></tr>
+        <tr><td>用户</td><td>string</td><td>脱敏显示 (user_***123)</td></tr>
+        <tr><td>商品</td><td>string</td><td>显示商品名称</td></tr>
+        <tr><td>金额</td><td>number</td><td>格式: ¥{金额}，保留整数</td></tr>
+        <tr><td>状态</td><td>enum</td><td><span class="badge badge-green">已支付</span> / <span class="badge badge-orange">处理中</span> / <span class="badge badge-red">失败</span></td></tr>
+        <tr><td>日期</td><td>string</td><td>格式: YYYY-MM-DD</td></tr>
+      </table>
+    </div>
+
+    <!-- ========== 2. 商品管理 ========== -->
+    <div id="plans" class="module">
+      <div class="page-intro">
+        <h2>2. 商品管理 (Plans)</h2>
+        <p>路径: /plans | 访问权限: 管理员、编辑 | 主要功能: 管理订阅计划、定价、优惠活动和功能解锁</p>
+      </div>
+
+      <h3>2.1 页面结构</h3>
+      <!-- Plans 可视化示意图 -->
+      <div class="page-mockup">
+        <div class="page-mockup-title">商品管理布局示意</div>
+        <div class="mockup-container">
+          <!-- 工具栏 -->
+          <div class="table-toolbar">
+            <input type="text" class="search-input" placeholder="🔍 搜索商品名称...">
+            <button class="primary-btn">+ 创建商品</button>
+          </div>
+          <!-- 数据表格 -->
+          <div class="data-table">
+            <table>
+              <thead>
+                <tr>
+                  <th style="width: 80px;">ID</th>
+                  <th>名称</th>
+                  <th style="width: 120px;">价格</th>
+                  <th style="width: 80px;">周期</th>
+                  <th style="width: 80px;">人数</th>
+                  <th style="width: 80px;">状态</th>
+                  <th style="width: 120px;">操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>plan-001</td>
+                  <td><strong>月度专业版</strong> <span class="mini-tag mini-tag-red">限时特惠</span></td>
+                  <td><span style="text-decoration: line-through; color: #999;">¥99</span> <span style="color: #ff4d4f; font-weight: 600;">¥49</span></td>
+                  <td>月</td>
+                  <td>1,250</td>
+                  <td><span class="mini-tag mini-tag-green">启用</span></td>
+                  <td><button class="btn btn-link">编辑</button> <button class="btn btn-link danger">删除</button></td>
+                </tr>
+                <tr>
+                  <td>plan-002</td>
+                  <td><strong>年度专业版</strong></td>
+                  <td>¥490/年</td>
+                  <td>年</td>
+                  <td>856</td>
+                  <td><span class="mini-tag mini-tag-green">启用</span></td>
+                  <td><button class="btn btn-link">编辑</button> <button class="btn btn-link danger">删除</button></td>
+                </tr>
+                <tr>
+                  <td>plan-003</td>
+                  <td><strong>终身会员</strong> <span class="mini-tag mini-tag-purple">热门</span></td>
+                  <td>¥999</td>
+                  <td>终身</td>
+                  <td>234</td>
+                  <td><span class="mini-tag mini-tag-gray">停用</span></td>
+                  <td><button class="btn btn-link">编辑</button> <button class="btn btn-link danger">删除</button></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <!-- 分页 -->
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 16px; color: rgba(255,255,255,0.6); font-size: 12px;">
+            <span>共 3 条记录</span>
+            <div style="display: flex; gap: 4px;">
+              <span style="padding: 6px 12px; background: var(--primary); color: #fff; border-radius: 4px;">1</span>
+              <span style="padding: 6px 12px; background: rgba(255,255,255,0.1); border-radius: 4px;">2</span>
+              <span style="padding: 6px 12px; background: rgba(255,255,255,0.1); border-radius: 4px;">3</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <table>
+        <tr><th>区域</th><th>组件</th><th>描述</th></tr>
+        <tr><td>顶部操作栏</td><td>标题 + 描述 + 创建按钮</td><td>页面标题"商品管理" + 说明文字 + "创建商品"主按钮</td></tr>
+        <tr><td>主体区域</td><td>数据表格 (Table)</td><td>展示所有商品列表，支持展开详情</td></tr>
+        <tr><td>弹窗区域</td><td>创建/编辑 Modal</td><td>商品表单弹窗</td></tr>
+      </table>
+
+      <h3>2.2 表格列定义</h3>
+      <table>
+        <tr><th>列名</th><th>数据源</th><th>渲染规则</th><th>交互</th></tr>
+        <tr><td>ID</td><td>plan-001</td><td>原始字符串</td><td>无 (md+ 显示)</td></tr>
+        <tr><td>名称</td><td>商品名称</td><td>粗体文本 + <span class="badge badge-red">限时特惠</span> (如果有原价且高于现价)</td><td>无</td></tr>
+        <tr><td>价格</td><td>price / originalPrice</td><td>划线原价 + 现价 (红色) + 货币单位</td><td>hover 高亮</td></tr>
+        <tr><td>周期</td><td>interval</td><td>月/季度/年/终身</td><td>无</td></tr>
+        <tr><td>订阅人数</td><td>subscribers</td><td>千分位格式化 (1,250)</td><td>无 (lg+ 显示)</td></tr>
+        <tr><td>状态</td><td>status</td><td><span class="badge badge-green">启用</span> / <span class="badge badge-gray">停用</span></td><td>无</td></tr>
+        <tr><td>操作</td><td>-</td><td><button class="btn btn-link">编辑</button> <button class="btn btn-link danger">删除</button></td><td>编辑/删除</td></tr>
+      </table>
+
+      <h3>2.3 功能按钮详细说明</h3>
+
+      <div class="function-group">
+        <div class="function-title">【创建商品】按钮</div>
+        <div class="interaction">
+          <strong>位置:</strong> 页面右上角，"创建商品"主按钮<br>
+          <strong>按钮样式:</strong> Primary 类型，蓝底白字<br>
+          <strong>点击流程:</strong>
+          <div class="interaction-step"><span class="step-num">1</span><span>用户点击【创建商品】按钮</span></div>
+          <div class="interaction-step"><span class="step-num">2</span><span>系统清空表单，标题变为"创建商品"</span></div>
+          <div class="interaction-step"><span class="step-num">3</span><span>Modal 弹窗从屏幕中央淡入 (300ms)</span></div>
+          <div class="interaction-step"><span class="step-num">4</span><span>用户填写表单字段</span></div>
+          <div class="interaction-step"><span class="step-num">5</span><span>用户点击【创建】按钮提交</span></div>
+          <div class="interaction-step"><span class="step-num">6</span><span>系统验证表单 (必填项校验)</span></div>
+          <div class="interaction-step"><span class="step-num">7</span><span>验证通过 → 保存数据到后端 → 关闭 Modal → 显示成功消息 → 刷新表格</span></div>
+          <div class="interaction-step"><span class="step-num">8</span><span>验证失败 → 高亮错误字段 + 显示错误提示</span></div>
+        </div>
+        <div class="modal-preview">
+          <h4>创建商品 Modal 表单</h4>
+          <div class="form-item">
+            <label>商品名称 <span style="color: red">*</span></label>
+            <input type="text" class="input-demo" placeholder="如：月度专业版">
+          </div>
+          <div class="form-item">
+            <label>价格 <span style="color: red">*</span></label>
+            <div style="display: flex; gap: 10px;">
+              <input type="number" class="input-demo" placeholder="0.00" style="flex: 1;">
+              <select class="select-demo" style="width: 120px;">
+                <option value="CNY">CNY (¥)</option>
+                <option value="USD">USD ($)</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-item">
+            <label>计费周期 <span style="color: red">*</span></label>
+            <select class="select-demo">
+              <option value="">选择计费周期</option>
+              <option value="month">月</option>
+              <option value="quarter">季度</option>
+              <option value="year">年</option>
+              <option value="lifetime">终身</option>
+            </select>
+          </div>
+          <div class="form-item">
+            <label>试用天数</label>
+            <input type="number" class="input-demo" placeholder="0 表示无试用" min="0" max="365">
+            <small style="color: #999">0-365 天，0 表示无试用期</small>
+          </div>
+        </div>
+      </div>
+
+      <div class="function-group">
+        <div class="function-title">【编辑】按钮</div>
+        <div class="interaction">
+          <div class="interaction-step"><span class="step-num">1</span><span>点击【编辑】按钮</span></div>
+          <div class="interaction-step"><span class="step-num">2</span><span>系统填充表单字段为当前商品数据</span></div>
+          <div class="interaction-step"><span class="step-num">3</span><span>Modal 标题变为"编辑商品"</span></div>
+          <div class="interaction-step"><span class="step-num">4</span><span>用户修改表单字段</span></div>
+          <div class="interaction-step"><span class="step-num">5</span><span>点击【保存】→ 验证 → 更新数据 → 关闭 → 显示成功消息</span></div>
+        </div>
+      </div>
+
+      <div class="function-group">
+        <div class="function-title">【删除】按钮</div>
+        <div class="interaction">
+          <div class="interaction-step"><span class="step-num">1</span><span>点击【删除】→ 弹出确认 Modal</span></div>
+          <div class="interaction-step"><span class="step-num">2</span><span>Modal 内容:"确认删除" + 商品名称 + 风险提示</span></div>
+          <div class="interaction-step"><span class="step-num">3</span><span>点击【删除】确认 → 从列表移除 → 显示成功消息</span></div>
+          <div class="interaction-step"><span class="step-num">4</span><span>点击【取消】→ 关闭确认 Modal</span></div>
+        </div>
+      </div>
+
+      <h3>2.4 Tag Hover 交互</h3>
+      <table>
+        <tr><th>Tag 类型</th><th>内容</th><th>Hover 行为</th><th>Popover 内容</th></tr>
+        <tr><td>功能解锁 Tag</td><td>"3/5 功能"</td><td>鼠标进入 → 显示 Popover</td><td>列出所有功能，标注已解锁/未解锁</td></tr>
+        <tr><td>付费墙关联 Tag</td><td>"2 个付费墙"</td><td>鼠标进入 → 显示 Popover</td><td>列出所有关联的付费墙名称</td></tr>
+        <tr><td>优惠活动 Tag</td><td>"首发特惠: 立减10元"</td><td>无 Popover</td><td>-</td></tr>
+      </table>
+    </div>
+
+    <!-- ========== 3. 付费墙管理 ========== -->
+    <div id="paywalls" class="module">
+      <div class="page-intro">
+        <h2>3. 付费墙管理 (Paywalls)</h2>
+        <p>路径: /paywalls | 访问权限: 管理员、编辑 | 主要功能: 管理付费墙列表、创建/编辑/删除付费墙</p>
+      </div>
+
+      <h3>3.1 页面结构</h3>
+      <!-- Paywalls 可视化示意图 -->
+      <div class="page-mockup">
+        <div class="page-mockup-title">付费墙管理布局示意</div>
+        <div class="mockup-container">
+          <!-- 工具栏 -->
+          <div class="table-toolbar">
+            <input type="text" class="search-input" placeholder="🔍 搜索名称、模板或ID...">
+            <button class="primary-btn">+ 创建付费墙</button>
+          </div>
+          <!-- 数据表格 -->
+          <div class="data-table">
+            <table>
+              <thead>
+                <tr>
+                  <th style="width: 80px;">ID</th>
+                  <th>名称</th>
+                  <th style="width: 100px;">模板</th>
+                  <th style="width: 80px;">状态</th>
+                  <th style="width: 100px;">浏览量</th>
+                  <th style="width: 80px;">转化率</th>
+                  <th style="width: 120px;">操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>pw-001</td>
+                  <td><strong>首页付费墙</strong></td>
+                  <td>standard</td>
+                  <td><span class="mini-tag mini-tag-green">启用</span></td>
+                  <td>125,800</td>
+                  <td>4.2%</td>
+                  <td><button class="btn btn-link">编辑</button> <button class="btn btn-link danger">删除</button></td>
+                </tr>
+                <tr>
+                  <td>pw-002</td>
+                  <td><strong>文章付费墙</strong></td>
+                  <td>minimal</td>
+                  <td><span class="mini-tag mini-tag-green">启用</span></td>
+                  <td>89,500</td>
+                  <td>3.8%</td>
+                  <td><button class="btn btn-link">编辑</button> <button class="btn btn-link danger">删除</button></td>
+                </tr>
+                <tr>
+                  <td>pw-003</td>
+                  <td><strong>新用户引导</strong></td>
+                  <td>feature</td>
+                  <td><span class="mini-tag mini-tag-orange">草稿</span></td>
+                  <td>0</td>
+                  <td>-</td>
+                  <td><button class="btn btn-link">编辑</button> <button class="btn btn-link danger">删除</button></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <table>
+        <tr><th>区域</th><th>组件</th><th>描述</th></tr>
+        <tr><td>顶部操作栏</td><td>标题 + 搜索框 + 创建按钮</td><td>页面标题 + 搜索输入框 + "创建付费墙"主按钮</td></tr>
+        <tr><td>主体区域</td><td>数据表格</td><td>展示所有付费墙列表</td></tr>
+      </table>
+
+      <h3>3.2 表格列定义</h3>
+      <table>
+        <tr><th>列名</th><th>数据源</th><th>渲染规则</th></tr>
+        <tr><td>ID</td><td>pw-001</td><td>原始字符串</td></tr>
+        <tr><td>名称</td><td>name</td><td>粗体文本</td></tr>
+        <tr><td>模板</td><td>template</td><td>原始字符串 (模板标识)</td></tr>
+        <tr><td>状态</td><td>status</td><td><span class="badge badge-green">启用</span> / <span class="badge badge-red">停用</span> / <span class="badge badge-gray">草稿</span></td></tr>
+        <tr><td>浏览量</td><td>views</td><td>千分位格式化 (125,800)</td></tr>
+        <tr><td>转化率</td><td>cvr</td><td>百分比格式 (4.2%)</td></tr>
+        <tr><td>操作</td><td>-</td><td><button class="btn btn-link">编辑</button> <button class="btn btn-link danger">删除</button></td></tr>
+      </table>
+
+      <h3>3.3 功能按钮详细说明</h3>
+
+      <div class="function-group">
+        <div class="function-title">【搜索】输入框</div>
+        <div class="interaction">
+          <div class="interaction-step"><span class="step-num">1</span><span>用户输入搜索关键词</span></div>
+          <div class="interaction-step"><span class="step-num">2</span><span>输入时实时筛选 (debounce 300ms)</span></div>
+          <div class="interaction-step"><span class="step-num">3</span><span>匹配字段: 名称(name)、模板(template)、ID(id)</span></div>
+          <div class="interaction-step"><span class="step-num">4</span><span>点击清除按钮 → 清空搜索条件，显示全部数据</span></div>
+        </div>
+      </div>
+
+      <div class="function-group">
+        <div class="function-title">【创建付费墙】按钮</div>
+        <div class="interaction">
+          <div class="interaction-step"><span class="step-num">1</span><span>点击按钮 → 弹出创建 Modal</span></div>
+          <div class="interaction-step"><span class="step-num">2</span><span>Modal 标题:"创建付费墙"</span></div>
+          <div class="interaction-step"><span class="step-num">3</span><span>用户填写付费墙名称等基本信息</span></div>
+          <div class="interaction-step"><span class="step-num">4</span><span>点击【创建】→ 保存 → 关闭 Modal → 显示成功消息</span></div>
+        </div>
+      </div>
+
+      <div class="function-group">
+        <div class="function-title">【编辑】按钮</div>
+        <div class="interaction">
+          <div class="interaction-step"><span class="step-num">1</span><span>点击【编辑】→ 打开编辑 Modal</span></div>
+          <div class="interaction-step"><span class="step-num">2</span><span>加载该付费墙数据到表单</span></div>
+          <div class="interaction-step"><span class="step-num">3</span><span>修改后点击【保存】→ 更新 → 关闭 Modal</span></div>
+        </div>
+      </div>
+
+      <div class="function-group">
+        <div class="function-title">【删除】按钮</div>
+        <div class="interaction">
+          <div class="interaction-step"><span class="step-num">1</span><span>点击【删除】→ 弹出确认 Modal</span></div>
+          <div class="interaction-step"><span class="step-num">2</span><span>Modal 内容:"确定要删除付费墙 "{名称}" 吗？此操作不可撤销。"</span></div>
+          <div class="interaction-step"><span class="step-num">3</span><span>点击【确认删除】→ 从列表移除 → 显示成功消息</span></div>
+          <div class="interaction-step"><span class="step-num">4</span><span>点击【取消】→ 关闭 Modal</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ========== 4. 付费墙编辑器 (重点设计) ========== -->
+    <div id="paywall-editor" class="module">
+      <div class="page-intro">
+        <h2>4. 付费墙编辑器 (Paywall Editor)</h2>
+        <p>路径: /paywalls/[id] | 访问权限: 管理员、编辑 | 主要功能: 可视化编辑付费墙组件、配置主题样式、实时预览</p>
+      </div>
+
+      <h3>4.1 页面布局 - 三栏设计示意图</h3>
+      <div class="editor-mockup">
+        <div class="editor-mockup-title">付费墙编辑器 - 三栏布局</div>
+        <div class="editor-columns">
+          <!-- 左侧: 组件面板 -->
+          <div class="editor-col editor-col-left">
+            <div class="editor-col-title">组件面板</div>
+            <div class="component-btn">
+              <div class="icon">▤</div>
+              <span>标题 Header</span>
+            </div>
+            <div class="component-btn">
+              <div class="icon">☰</div>
+              <span>计划选择器</span>
+            </div>
+            <div class="component-btn">
+              <div class="icon">✓</div>
+              <span>功能列表</span>
+            </div>
+            <div class="component-btn">
+              <div class="icon">★</div>
+              <span>用户评价</span>
+            </div>
+            <div class="component-btn">
+              <div class="icon">🎁</div>
+              <span>试用徽章</span>
+            </div>
+            <div class="component-btn">
+              <div class="icon">▶</div>
+              <span>行动按钮</span>
+            </div>
+          </div>
+
+          <!-- 中间: 预览区域 -->
+          <div class="editor-col editor-col-center">
+            <div class="device-switcher" style="justify-content: center;">
+              <button class="device-btn">📱 Mobile</button>
+              <button class="device-btn">📱 Tablet</button>
+              <button class="device-btn active">🖥 Desktop</button>
+            </div>
+            <div style="background: #fff; border-radius: 8px; padding: 16px; position: relative;">
+              <div style="position: relative; margin-bottom: 12px;">
+                <span style="position: absolute; left: -20px; top: 50%; color: #999; cursor: grab;">⋮⋮</span>
+                <div class="preview-block selected" style="position: relative;">
+                  <span class="preview-delete-btn">×</span>
+                  <div style="text-align: center;">
+                    <div style="font-size: 18px; font-weight: 600;">选择您的计划</div>
+                    <div style="color: #666; font-size: 14px;">解锁所有高级功能</div>
+                  </div>
+                </div>
+              </div>
+              <div style="position: relative; margin-bottom: 12px;">
+                <span style="position: absolute; left: -20px; top: 50%; color: #999; cursor: grab;">⋮⋮</span>
+                <div class="preview-block">
+                  <div style="font-size: 14px; font-weight: 500; margin-bottom: 8px;">选择计划</div>
+                  <div style="display: flex; gap: 8px;">
+                    <div style="flex: 1; background: #f0f0f0; padding: 8px; border-radius: 6px; text-align: center;">
+                      <div style="font-size: 12px;">基础版</div>
+                      <div style="font-weight: 600;">¥0</div>
+                    </div>
+                    <div style="flex: 1; background: #e6f7ff; padding: 8px; border-radius: 6px; border: 2px solid #1890ff; text-align: center;">
+                      <div style="font-size: 12px;">专业版</div>
+                      <div style="font-weight: 600;">¥99</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div style="position: relative; margin-bottom: 12px;">
+                <span style="position: absolute; left: -20px; top: 50%; color: #999; cursor: grab;">⋮⋮</span>
+                <div class="preview-block">
+                  <div style="font-size: 14px; font-weight: 500; margin-bottom: 8px;">功能列表</div>
+                  <div style="font-size: 13px; color: #52c41a;">✓ 无限使用</div>
+                  <div style="font-size: 13px; color: #52c41a;">✓ 优先支持</div>
+                </div>
+              </div>
+              <div class="preview-block-btn" style="position: relative;">
+                <span style="position: absolute; left: -20px; top: 50%; color: #999; cursor: grab;">⋮⋮</span>
+                立即订阅
+              </div>
+            </div>
+          </div>
+
+          <!-- 右侧: 属性配置 -->
+          <div class="editor-col editor-col-right">
+            <div class="editor-col-title">属性配置</div>
+
+            <div class="config-group">
+              <div style="font-size: 0.75em; color: rgba(255,255,255,0.5); margin-bottom: 8px;">主题配置</div>
+              <div class="config-row" style="margin-bottom: 8px;">
+                <div class="config-color" style="background: #1890ff;"></div>
+                <span style="color: rgba(255,255,255,0.8); font-size: 0.8em;">主色调</span>
+              </div>
+              <select class="config-input" style="margin-bottom: 8px;">
+                <option>系统字体</option>
+                <option>Inter</option>
+              </select>
+              <div style="color: rgba(255,255,255,0.5); font-size: 0.75em; margin-bottom: 4px;">圆角: 8px</div>
+              <input type="range" class="config-slider" min="0" max="24" value="8" style="width: 100%;">
+            </div>
+
+            <div style="border-top: 1px solid rgba(255,255,255,0.1); padding-top: 12px;">
+              <div style="font-size: 0.75em; color: rgba(255,255,255,0.5); margin-bottom: 8px;">组件配置</div>
+              <div class="config-label">标题文字</div>
+              <input type="text" class="config-input" value="选择您的计划" style="margin-bottom: 8px;">
+              <div class="config-label">副标题</div>
+              <input type="text" class="config-input" value="解锁所有高级功能">
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <h3>4.2 各区域详细说明</h3>
+
+      <h4>4.2.1 顶部工具栏</h4>
+      <table>
+        <tr><th>组件</th><th>类型</th><th>描述</th><th>交互行为</th></tr>
+        <tr><td>页面标题</td><td>静态</td><td>"付费墙编辑器" + ID 标识</td><td>无</td></tr>
+        <tr><td>模板选择器</td><td>Select</td><td>下拉选择付费墙模板</td><td>选择模板 → 预览区域组件更新</td></tr>
+        <tr><td>【保存】按钮</td><td>Primary Button</td><td>保存当前配置</td><td>点击 → 收集配置 → 显示成功消息</td></tr>
+      </table>
+
+      <h4>4.2.2 左侧组件面板 (256px)</h4>
+      <div class="function-group">
+        <div class="function-title">组件列表 (6个可添加组件)</div>
+        <table>
+          <tr><th>组件</th><th>图标</th><th>功能描述</th><th>点击行为</th></tr>
+          <tr><td>标题</td><td>LayoutOutlined</td><td>付费墙页面标题区域</td><td>点击 → 添加到预览区域末尾</td></tr>
+          <tr><td>计划选择器</td><td>MenuOutlined</td><td>显示订阅计划列表</td><td>点击 → 添加到预览区域末尾</td></tr>
+          <tr><td>功能列表</td><td>CheckCircleOutlined</td><td>展示付费功能列表</td><td>点击 → 添加到预览区域末尾</td></tr>
+          <tr><td>用户评价</td><td>StarOutlined</td><td>展示用户好评/推荐</td><td>点击 → 添加到预览区域末尾</td></tr>
+          <tr><td>试用徽章</td><td>GiftOutlined</td><td>显示免费试用提示</td><td>点击 → 添加到预览区域末尾</td></tr>
+          <tr><td>行动按钮</td><td>PlayCircleOutlined</td><td>主要 CTA 按钮</td><td>点击 → 添加到预览区域末尾</td></tr>
+        </table>
+        <div class="interaction">
+          <strong>添加组件流程:</strong>
+          <div class="interaction-step"><span class="step-num">1</span><span>点击左侧组件按钮</span></div>
+          <div class="interaction-step"><span class="step-num">2</span><span>系统生成新组件 ID: "{类型}-{时间戳}-{序号}"</span></div>
+          <div class="interaction-step"><span class="step-num">3</span><span>新组件添加到预览区域列表末尾</span></div>
+          <div class="interaction-step"><span class="step-num">4</span><span>预览区域自动滚动到底部</span></div>
+          <div class="interaction-step"><span class="step-num">5</span><span>新组件高亮显示 (蓝色边框)</span></div>
+        </div>
+      </div>
+
+      <h4>4.2.3 中间预览区域 (自适应)</h4>
+      <div class="function-group">
+        <div class="function-title">设备切换按钮组</div>
+        <div class="interaction">
+          <strong>三个按钮:</strong>
+          <ul style="margin-left: 20px;">
+            <li><strong>Mobile</strong> (📱) - 手机尺寸 375px，居中显示</li>
+            <li><strong>Tablet</strong> (📱) - 平板尺寸 768px，居中显示</li>
+            <li><strong>Desktop</strong> (🖥) - 全宽自适应 (100%)</li>
+          </ul>
+          <div class="interaction-step"><span class="step-num">1</span><span>点击设备按钮 → 预览区域宽度切换</span></div>
+          <div class="interaction-step"><span class="step-num">2</span><span>当前选中按钮变为 Primary 类型</span></div>
+          <div class="interaction-step"><span class="step-num">3</span><span>切换时有平滑过渡动画 (300ms)</span></div>
+        </div>
+      </div>
+
+      <div class="function-group">
+        <div class="function-title">组件拖拽排序 (@dnd-kit)</div>
+        <div class="interaction">
+          <strong>拖拽流程:</strong>
+          <div class="interaction-step"><span class="step-num">1</span><span>鼠标悬停组件左侧拖拽图标 → 光标变为 grab</span></div>
+          <div class="interaction-step"><span class="step-num">2</span><span>按下鼠标开始拖拽 → 组件透明度变为 0.5</span></div>
+          <div class="interaction-step"><span class="step-num">3</span><span>移动到其他位置 → 放置位置显示蓝色边框指示</span></div>
+          <div class="interaction-step"><span class="step-num">4</span><span>释放鼠标 → 组件列表重新排序</span></div>
+          <div class="interaction-step"><span class="step-num">5</span><span>DragOverlay 显示拖拽中的预览</span></div>
+        </div>
+        <div class="tip">
+          <strong>Sensors 配置:</strong> PointerSensor (鼠标拖拽) + KeyboardSensor (键盘方向键拖拽)
+        </div>
+      </div>
+
+      <div class="function-group">
+        <div class="function-title">组件选择与编辑</div>
+        <div class="interaction">
+          <div class="interaction-step"><span class="step-num">1</span><span>点击预览区域中的任意组件</span></div>
+          <div class="interaction-step"><span class="step-num">2</span><span>选中组件显示蓝色边框 (border-2 border-blue-500)</span></div>
+          <div class="interaction-step"><span class="step-num">3</span><span>右侧属性配置面板显示该组件的配置项</span></div>
+          <div class="interaction-step"><span class="step-num">4</span><span>点击其他组件 → 切换选中状态</span></div>
+          <div class="interaction-step"><span class="step-num">5</span><span>点击空白区域 → 取消选中状态</span></div>
+        </div>
+      </div>
+
+      <div class="function-group">
+        <div class="function-title">组件删除</div>
+        <div class="interaction">
+          <strong>删除按钮:</strong> 鼠标悬停在组件卡片右上角时显示<br>
+          <strong>样式:</strong> 红色圆形 × 图标，opacity 0 → 1 (hover 时)<br>
+          <strong>交互流程:</strong>
+          <div class="interaction-step"><span class="step-num">1</span><span>鼠标进入组件卡片区域 → 删除按钮显示</span></div>
+          <div class="interaction-step"><span class="step-num">2</span><span>点击删除按钮 → 从组件列表中移除</span></div>
+          <div class="interaction-step"><span class="step-num">3</span><span>如果该组件正在被编辑 → 右侧面板恢复为默认提示</span></div>
+        </div>
+      </div>
+
+      <h4>4.2.4 右侧属性配置面板 (288px)</h4>
+      <div class="function-group">
+        <div class="function-title">主题配置区域 (Collapse 可折叠)</div>
+        <table>
+          <tr><th>配置项</th><th>控件</th><th>默认值</th><th>交互</th></tr>
+          <tr><td>主色调</td><td>Color Input</td><td>#1890ff</td><td>点击选择颜色 → 实时更新预览</td></tr>
+          <tr><td>字体</td><td>Select</td><td>system</td><td>下拉选择: 系统默认/Inter/Roboto/思源黑体</td></tr>
+          <tr><td>圆角</td><td>Slider (0-24px)</td><td>8px</td><td>拖动滑块 → 实时显示当前值 "{X}px"</td></tr>
+          <tr><td>暗色模式</td><td>Switch</td><td>false</td><td>点击切换 → 更新预览区域</td></tr>
+        </table>
+      </div>
+
+      <div class="function-group">
+        <div class="function-title">组件属性配置 (根据选中组件显示)</div>
+
+        <h4>Header 组件</h4>
+        <table>
+          <tr><th>字段</th><th>控件</th><th>默认值</th></tr>
+          <tr><td>标题</td><td>Input</td><td>"选择您的计划"</td></tr>
+          <tr><td>副标题</td><td>Input</td><td>"解锁所有高级功能"</td></tr>
+          <tr><td>文字颜色</td><td>Color Input</td><td>#333333</td></tr>
+          <tr><td>背景颜色</td><td>Color Input</td><td>#ffffff</td></tr>
+        </table>
+
+        <h4>PlanSelector 组件</h4>
+        <table>
+          <tr><th>字段</th><th>控件</th><th>默认值</th></tr>
+          <tr><td>标题</td><td>Input</td><td>"选择计划"</td></tr>
+          <tr><td>显示年度选项</td><td>Switch</td><td>true</td></tr>
+          <tr><td>高亮计划</td><td>Select</td><td>"pro" (专业版)</td></tr>
+          <tr><td>显示划线价格</td><td>Switch</td><td>true</td></tr>
+          <tr><td>Badge 文字</td><td>Input</td><td>"推荐"</td></tr>
+        </table>
+
+        <h4>FeatureList 组件</h4>
+        <table>
+          <tr><th>字段</th><th>控件</th><th>默认值</th></tr>
+          <tr><td>标题</td><td>Input</td><td>"功能列表"</td></tr>
+          <tr><td>强调颜色</td><td>Color Input</td><td>#1890ff</td></tr>
+        </table>
+
+        <h4>TrialBadge / CTAButton 组件</h4>
+        <table>
+          <tr><th>字段</th><th>控件</th><th>默认值</th></tr>
+          <tr><td>按钮文字</td><td>Input</td><td>"7天免费试用" / "立即订阅"</td></tr>
+          <tr><td>背景颜色</td><td>Color Input</td><td>#52c41a / #1890ff</td></tr>
+          <tr><td>文字颜色</td><td>Color Input</td><td>#ffffff</td></tr>
+        </table>
+
+        <div class="interaction">
+          <strong>实时预览:</strong> 修改任意字段 → 预览区域中该组件立即更新显示
+        </div>
+      </div>
+
+      <h4>4.2.5 无选中组件时的状态</h4>
+      <div class="note">
+        右侧面板显示居中提示文字: <strong>"点击中间预览区域的组件进行编辑"</strong><br>
+        文字颜色: #999，字体大小: 14px
+      </div>
+
+      <h3>4.3 模板切换交互</h3>
+      <table>
+        <tr><th>模板名称</th><th>包含组件</th><th>切换行为</th></tr>
+        <tr><td>标准版 (Standard)</td><td>Header + PlanSelector + FeatureList + Testimonials + CTAButton</td><td rowspan="3">选择模板 → 预览区域组件列表替换为该模板的默认组件</td></tr>
+        <tr><td>简约版 (Minimal)</td><td>Header + PlanSelector + CTAButton</td></tr>
+        <tr><td>功能列表 (FeatureList)</td><td>Header + FeatureList + TrialBadge + CTAButton</td></tr>
+      </table>
+    </div>
+
+    <!-- ========== 5. Targeting Rules ========== -->
+    <div id="rules" class="module">
+      <div class="page-intro">
+        <h2>5. Targeting Rules (规则管理)</h2>
+        <p>路径: /rules | 访问权限: 管理员、编辑 | 主要功能: 管理用户定向规则、配置付费墙触发条件</p>
+      </div>
+
+      <h3>5.1 页面结构</h3>
+      <!-- Targeting Rules 可视化示意图 -->
+      <div class="page-mockup">
+        <div class="page-mockup-title">Targeting Rules 布局示意</div>
+        <div class="mockup-container">
+          <!-- 工具栏 -->
+          <div class="table-toolbar">
+            <span style="color: rgba(255,255,255,0.9); font-size: 16px; font-weight: 600;">Targeting Rules</span>
+            <div style="flex: 1;"></div>
+            <button class="primary-btn">+ 创建规则</button>
+          </div>
+          <!-- 数据表格 -->
+          <div class="data-table">
+            <table>
+              <thead>
+                <tr>
+                  <th>规则名称</th>
+                  <th>描述</th>
+                  <th>条件</th>
+                  <th>触发墙</th>
+                  <th style="width: 80px;">状态</th>
+                  <th style="width: 120px;">操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>新用户引导</strong></td>
+                  <td style="color: #666; font-size: 11px;">新用户首次访问时触发</td>
+                  <td>
+                    <span class="mini-tag mini-tag-orange">触发条件</span>
+                    <span class="mini-tag mini-tag-blue">用户特征</span>
+                  </td>
+                  <td><span class="mini-tag mini-tag-purple">新用户引导墙</span></td>
+                  <td><div class="mini-switch active"></div></td>
+                  <td><button class="btn btn-link">编辑</button> <button class="btn btn-link danger">删除</button></td>
+                </tr>
+                <tr>
+                  <td><strong>iOS用户专属</strong></td>
+                  <td style="color: #666; font-size: 11px;">iOS设备用户显示专业版</td>
+                  <td>
+                    <span class="mini-tag mini-tag-blue">设备=iOS</span>
+                  </td>
+                  <td><span class="mini-tag mini-tag-purple">专业版推荐墙</span></td>
+                  <td><div class="mini-switch active"></div></td>
+                  <td><button class="btn btn-link">编辑</button> <button class="btn btn-link danger">删除</button></td>
+                </tr>
+                <tr>
+                  <td><strong>付费用户续费提示</strong></td>
+                  <td style="color: #666; font-size: 11px;">订阅到期前7天提醒</td>
+                  <td>
+                    <span class="mini-tag mini-tag-green">订阅状态</span>
+                    <span class="mini-tag mini-tag-blue">用户特征</span>
+                  </td>
+                  <td><span class="mini-tag mini-tag-purple">续费优惠墙</span></td>
+                  <td><div class="mini-switch"></div></td>
+                  <td><button class="btn btn-link">编辑</button> <button class="btn btn-link danger">删除</button></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <table>
+        <tr><th>区域</th><th>组件</th><th>描述</th></tr>
+        <tr><td>顶部操作栏</td><td>标题 + 创建按钮</td><td>"Targeting Rules" + "创建规则"主按钮</td></tr>
+        <tr><td>主体区域</td><td>数据表格 (Card 包裹)</td><td>展示所有规则列表</td></tr>
+      </table>
+
+      <h3>5.2 表格列定义</h3>
+      <table>
+        <tr><th>列名</th><th>数据源</th><th>渲染规则</th><th>交互</th></tr>
+        <tr><td>规则名称</td><td>name</td><td>粗体文本</td><td>无</td></tr>
+        <tr><td>描述</td><td>description</td><td>文本，超长省略</td><td>无</td></tr>
+        <tr><td>条件</td><td>conditionGroups</td><td>Tag 列表，颜色编码: 触发=orange, 特征=blue, 订阅=green</td><td>无</td></tr>
+        <tr><td>触发墙</td><td>paywallId</td><td><span class="badge badge-purple">付费墙名称</span></td><td>无</td></tr>
+        <tr><td>状态</td><td>status</td><td>Switch 开关</td><td>点击切换 active ↔ inactive</td></tr>
+        <tr><td>操作</td><td>-</td><td><button class="btn btn-link">编辑</button> <button class="btn btn-link danger">删除</button></td><td>编辑/删除</td></tr>
+      </table>
+
+      <h3>5.3 规则创建/编辑 Modal 详细交互</h3>
+
+      <div class="function-group">
+        <div class="function-title">表单字段</div>
+        <table>
+          <tr><th>字段</th><th>类型</th><th>规则</th></tr>
+          <tr><td>规则名称</td><td>Input</td><td>必填，最大 100 字符，显示计数</td></tr>
+          <tr><td>规则描述</td><td>TextArea</td><td>可选，最大 500 字符，显示计数</td></tr>
+          <tr><td>优先级</td><td>InputNumber</td><td>必填，范围 1-99</td></tr>
+          <tr><td>触发的付费墙</td><td>Select</td><td>必填，从付费墙列表选择</td></tr>
+        </table>
+      </div>
+
+      <div class="function-group">
+        <div class="function-title">条件配置区域</div>
+        <div class="modal-preview">
+          <h4>条件组合逻辑选择</h4>
+          <p>AND (全部满足) / OR (任一满足)</p>
+        </div>
+        <div class="modal-preview">
+          <h4>条件行结构</h4>
+          <p>每行: 条件类型 Select + 字段 Select + 操作符 Select + 值 Input + 删除按钮 + 逻辑标签</p>
+          <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+            <select class="select-demo" style="width: 100px;"><option>触发条件</option></select>
+            <select class="select-demo" style="width: 100px;"><option>国家</option></select>
+            <select class="select-demo" style="width: 80px;"><option>等于</option></select>
+            <input type="text" class="input-demo" placeholder="值" style="width: 100px;">
+            <button class="btn btn-danger" style="padding: 4px 8px;">×</button>
+            <span class="badge badge-gray">AND</span>
+          </div>
+          <button class="btn btn-default" style="margin-top: 10px; border-style: dashed;">+ 添加条件</button>
+        </div>
+      </div>
+
+      <div class="function-group">
+        <div class="function-title">条件联动逻辑</div>
+        <table>
+          <tr><th>条件类型</th><th>可用字段</th><th>可用操作符</th></tr>
+          <tr><td>触发条件 (trigger)</td><td>页面URL、来源页面、停留时间(秒)</td><td>包含、等于、开头是、大于等于、小于等于、介于</td></tr>
+          <tr><td>用户特征 (user_trait)</td><td>国家、设备类型、浏览器、用户类型</td><td>等于、在列表中</td></tr>
+          <tr><td>订阅状态 (subscription_status)</td><td>订阅等级、试用状态、注册天数</td><td>等于、大于等于、小于等于、介于</td></tr>
+        </table>
+        <div class="note">
+          <strong>联动规则:</strong> 当用户改变"条件类型"时，"字段"下拉框自动更新，同时"操作符"下拉框重置为第一个可用操作符
+        </div>
+      </div>
+    </div>
+
+    <!-- ========== 6. A/B 测试 ========== -->
+    <div id="experiments" class="module">
+      <div class="page-intro">
+        <h2>6. A/B 测试 (Experiments)</h2>
+        <p>路径: /experiments | 访问权限: 管理员、编辑 | 主要功能: 创建和管理 A/B 测试实验、配置变体流量分配、跟踪实验效果</p>
+      </div>
+
+      <h3>6.1 页面结构</h3>
+      <!-- A/B Testing 可视化示意图 -->
+      <div class="page-mockup">
+        <div class="page-mockup-title">A/B 测试布局示意</div>
+        <div class="mockup-container">
+          <!-- 工具栏 -->
+          <div class="table-toolbar">
+            <span style="color: rgba(255,255,255,0.9); font-size: 16px; font-weight: 600;">A/B 测试</span>
+            <div style="flex: 1;"></div>
+            <button class="primary-btn">+ 创建实验</button>
+          </div>
+          <!-- 数据表格 -->
+          <div class="data-table">
+            <table>
+              <thead>
+                <tr>
+                  <th>实验名称</th>
+                  <th style="width: 100px;">状态</th>
+                  <th style="width: 120px;">开始日期</th>
+                  <th style="width: 80px;">变体数</th>
+                  <th style="width: 100px;">提升</th>
+                  <th style="width: 180px;">操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>CTA按钮颜色测试</strong></td>
+                  <td><span class="mini-tag mini-tag-blue">运行中</span></td>
+                  <td>2026-05-01</td>
+                  <td>2</td>
+                  <td style="color: #52c41a; font-weight: 600;">+12.5%</td>
+                  <td>
+                    <button class="btn btn-link">暂停</button>
+                    <button class="btn btn-link">完成</button>
+                  </td>
+                </tr>
+                <tr style="background: #f0f7ff;">
+                  <td colspan="6" style="padding: 8px 12px;">
+                    <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; font-size: 11px;">
+                      <div style="background: #fff; padding: 10px; border-radius: 6px;">
+                        <div style="color: #666;">P-Value</div>
+                        <div style="font-weight: 600;">0.034</div>
+                      </div>
+                      <div style="background: #fff; padding: 10px; border-radius: 6px;">
+                        <div style="color: #666;">样本量</div>
+                        <div style="font-weight: 600;">10,000</div>
+                      </div>
+                      <div style="background: #fff; padding: 10px; border-radius: 6px;">
+                        <div style="color: #666;">置信度</div>
+                        <div style="font-weight: 600;">94.5%</div>
+                      </div>
+                      <div style="background: #fff; padding: 10px; border-radius: 6px;">
+                        <div style="color: #666;">变体数据</div>
+                        <div style="display: flex; gap: 8px; margin-top: 4px;">
+                          <span class="mini-tag mini-tag-gray" style="font-size: 10px;">控制组 3.6%</span>
+                          <span class="mini-tag mini-tag-green" style="font-size: 10px;">实验组 4.9%</span>
+                        </div>
+                      </div>
+                    </div>
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>价格锚点测试</strong></td>
+                  <td><span class="mini-tag mini-tag-gray">草稿</span></td>
+                  <td>-</td>
+                  <td>3</td>
+                  <td>-</td>
+                  <td>
+                    <button class="btn btn-link" style="color: #52c41a;">启动</button>
+                    <button class="btn btn-link danger">删除</button>
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>付费墙模板对比</strong></td>
+                  <td><span class="mini-tag mini-tag-green">已完成</span></td>
+                  <td>2026-04-15</td>
+                  <td>2</td>
+                  <td style="color: #52c41a; font-weight: 600;">+8.2%</td>
+                  <td>
+                    <button class="btn btn-link" disabled style="color: #999;">已完成</button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <table>
+        <tr><th>区域</th><th>组件</th><th>描述</th></tr>
+        <tr><td>顶部操作栏</td><td>标题 + 创建按钮</td><td>"A/B 测试" + "+ 创建实验"主按钮</td></tr>
+        <tr><td>主体区域</td><td>数据表格 (支持展开行)</td><td>展示所有实验，点击展开查看详情</td></tr>
+      </table>
+
+      <h3>6.2 状态与操作按钮映射</h3>
+      <table>
+        <tr><th>实验状态</th><th>Tag 样式</th><th>可用操作按钮</th><th>操作说明</th></tr>
+        <tr><td>草稿 (draft)</td><td><span class="badge badge-gray">草稿</span></td><td><button class="btn btn-link">启动</button> <button class="btn btn-link danger">删除</button></td><td>启动 → running；删除 → 确认后删除</td></tr>
+        <tr><td>运行中 (running)</td><td><span class="badge badge-blue">运行中</span></td><td><button class="btn btn-link">暂停</button> <button class="btn btn-link">完成</button></td><td>暂停 → paused；完成 → completed</td></tr>
+        <tr><td>已暂停 (paused)</td><td><span class="badge badge-orange">已暂停</span></td><td><button class="btn btn-link">恢复</button> <button class="btn btn-link">完成</button></td><td>恢复 → running；完成 → completed</td></tr>
+        <tr><td>已完成 (completed)</td><td><span class="badge badge-green">已完成</span></td><td><button class="btn btn-link" disabled>已完成</button></td><td>所有按钮禁用</td></tr>
+      </table>
+
+      <h3>6.3 展开行详情交互</h3>
+      <div class="modal-preview">
+        <h4>展开行布局 - 三个卡片 + 变体数据表格</h4>
+        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 16px;">
+          <div style="background: #fff; padding: 12px; border-radius: 6px;">
+            <strong>统计详情</strong><br>
+            <small>P-Value: 0.034 | 样本量: 10,000 | 统计功效: 0.82</small>
+          </div>
+          <div style="background: #fff; padding: 12px; border-radius: 6px;">
+            <strong>置信度</strong><br>
+            <small>94.5% - <span class="badge badge-blue">接近显著</span></small>
+          </div>
+          <div style="background: #fff; padding: 12px; border-radius: 6px;">
+            <strong>目标规则</strong><br>
+            <small><span class="badge badge-purple">新用户</span> <span class="badge badge-purple">iOS用户</span></small>
+          </div>
+        </div>
+        <table>
+          <tr><th>变体</th><th>流量</th><th>转化数</th><th>转化率</th></tr>
+          <tr><td>控制组</td><td>5,000</td><td>180</td><td>3.60%</td></tr>
+          <tr><td>实验组A</td><td>5,000</td><td>245</td><td style="color: var(--success); font-weight: 600;">4.90%</td></tr>
+        </table>
+      </div>
+
+      <h3>6.4 变体配置交互 (创建 Modal)</h3>
+      <div class="function-group">
+        <div class="function-title">流量权重配置</div>
+        <div class="interaction">
+          <div class="interaction-step"><span class="step-num">1</span><span>每个变体: 变体名称 Input + 流量权重 Slider (0-100%) + InputNumber 同步</span></div>
+          <div class="interaction-step"><span class="step-num">2</span><span>点击"+ 添加变体" → 最多 5 个变体</span></div>
+          <div class="interaction-step"><span class="step-num">3</span><span>点击"移除变体" → 删除最后一个 (至少保留 2 个)</span></div>
+          <div class="interaction-step"><span class="step-num">4</span><span>底部提示: "流量权重总和: {X}% (应为100%)"</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ========== 7. 设置 ========== -->
+    <div id="settings" class="module">
+      <div class="page-intro">
+        <h2>7. 设置 (Settings)</h2>
+        <p>路径: /settings | 访问权限: 管理员 | 主要功能: 应用配置、团队管理、支付集成、API Keys、Webhooks</p>
+      </div>
+
+      <h3>7.1 功能模块概览</h3>
+      <!-- Settings 可视化示意图 -->
+      <div class="page-mockup">
+        <div class="page-mockup-title">设置页面布局示意</div>
+        <div class="mockup-container">
+          <div class="settings-grid">
+            <div class="settings-card">
+              <div class="settings-card-header">
+                <div class="settings-card-icon">⚙️</div>
+                <div class="settings-card-title">应用基础配置</div>
+              </div>
+              <div class="settings-card-desc">应用名称、Logo、时区等基础信息设置</div>
+              <button class="settings-card-btn">编辑配置</button>
+            </div>
+            <div class="settings-card">
+              <div class="settings-card-header">
+                <div class="settings-card-icon" style="background: #f6ffed;">👥</div>
+                <div class="settings-card-title">团队成员管理</div>
+              </div>
+              <div class="settings-card-desc">管理团队成员、角色权限</div>
+              <button class="settings-card-btn">邀请成员</button>
+            </div>
+            <div class="settings-card">
+              <div class="settings-card-header">
+                <div class="settings-card-icon" style="background: #fff7e6;">📋</div>
+                <div class="settings-card-title">操作审计日志</div>
+              </div>
+              <div class="settings-card-desc">查看系统操作记录和历史变更</div>
+              <button class="settings-card-btn">查看日志</button>
+            </div>
+            <div class="settings-card">
+              <div class="settings-card-header">
+                <div class="settings-card-icon" style="background: #fff2f0;">💳</div>
+                <div class="settings-card-title">支付集成</div>
+              </div>
+              <div class="settings-card-desc">配置 Stripe 等支付渠道</div>
+              <button class="settings-card-btn">配置 Stripe</button>
+            </div>
+            <div class="settings-card">
+              <div class="settings-card-header">
+                <div class="settings-card-icon" style="background: #e6fffb;">🔑</div>
+                <div class="settings-card-title">API Keys</div>
+              </div>
+              <div class="settings-card-desc">管理 API 访问密钥</div>
+              <button class="settings-card-btn">创建 Key</button>
+            </div>
+            <div class="settings-card">
+              <div class="settings-card-header">
+                <div class="settings-card-icon" style="background: #f9f0ff;">🪝</div>
+                <div class="settings-card-title">Webhooks</div>
+              </div>
+              <div class="settings-card-desc">配置事件通知回调地址</div>
+              <button class="settings-card-btn">创建 Webhook</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="flow">
+        <span class="flow-item">应用基础配置</span>
+        <span class="flow-arrow">→</span>
+        <span class="flow-item">团队成员管理</span>
+        <span class="flow-arrow">→</span>
+        <span class="flow-item">操作审计日志</span>
+        <span class="flow-arrow">→</span>
+        <span class="flow-item">支付集成</span>
+        <span class="flow-arrow">→</span>
+        <span class="flow-item">API Keys</span>
+        <span class="flow-arrow">→</span>
+        <span class="flow-item">Webhooks</span>
+      </div>
+
+      <h3>7.2 各模块按钮汇总</h3>
+      <table>
+        <tr><th>卡片</th><th>按钮</th><th>功能</th><th>Modal 标题</th></tr>
+        <tr><td>应用基础配置</td><td>编辑配置</td><td>修改应用基本信息</td><td>应用基础配置</td></tr>
+        <tr><td>团队成员管理</td><td>邀请成员</td><td>添加新团队成员</td><td>邀请团队成员</td></tr>
+        <tr><td>支付集成</td><td>配置 Stripe</td><td>设置 Stripe API 密钥</td><td>Stripe 支付配置</td></tr>
+        <tr><td>API Keys</td><td>创建 Key</td><td>生成新的 API Key</td><td>创建 API Key</td></tr>
+        <tr><td>Webhooks</td><td>创建 Webhook</td><td>添加新的 Webhook</td><td>创建/编辑 Webhook</td></tr>
+      </table>
+
+      <h3>7.3 团队成员管理详细交互</h3>
+      <div class="function-group">
+        <div class="function-title">【邀请成员】按钮</div>
+        <div class="interaction">
+          <div class="interaction-step"><span class="step-num">1</span><span>点击按钮 → Modal 打开，标题"邀请团队成员"</span></div>
+          <div class="interaction-step"><span class="step-num">2</span><span>用户填写: 邮箱地址 + 选择角色 (管理员/编辑/查看者)</span></div>
+          <div class="interaction-step"><span class="step-num">3</span><span>点击【发送邀请】→ 验证邮箱格式 → 显示成功消息 → 关闭 Modal</span></div>
+        </div>
+      </div>
+
+      <div class="function-group">
+        <div class="function-title">角色修改下拉</div>
+        <div class="interaction">
+          <div class="interaction-step"><span class="step-num">1</span><span>点击下拉 → 显示角色选项</span></div>
+          <div class="interaction-step"><span class="step-num">2</span><span>选择新角色 → 显示成功消息: "角色已更新为 {角色名}"</span></div>
+        </div>
+      </div>
+
+      <h3>7.4 Webhook 事件选项</h3>
+      <table>
+        <tr><th>事件值</th><th>显示标签</th></tr>
+        <tr><td>payment.success</td><td>支付成功</td></tr>
+        <tr><td>payment.failed</td><td>支付失败</td></tr>
+        <tr><td>subscription.created</td><td>订阅创建</td></tr>
+        <tr><td>subscription.updated</td><td>订阅更新</td></tr>
+        <tr><td>subscription.cancelled</td><td>订阅取消</td></tr>
+        <tr><td>paywall.viewed</td><td>付费墙浏览</td></tr>
+        <tr><td>paywall.converted</td><td>付费墙转化</td></tr>
+        <tr><td>experiment.completed</td><td>实验完成</td></tr>
+      </table>
+    </div>
+
+    <!-- ========== 附录 ========== -->
+    <div id="appendix" class="module">
+      <h2>附录: 交互设计规范</h2>
+
+      <h3>A1. 按钮样式规范</h3>
+      <table>
+        <tr><th>按钮类型</th><th>样式</th><th>使用场景</th></tr>
+        <tr><td>Primary</td><td><button class="btn btn-primary">主按钮</button></td><td>主要操作，如"创建"、"保存"</td></tr>
+        <tr><td>Success</td><td><button class="btn btn-success">成功</button></td><td>正向操作，如"启动"、"恢复"</td></tr>
+        <tr><td>Danger</td><td><button class="btn btn-danger">危险</button></td><td>删除等危险操作</td></tr>
+        <tr><td>Default</td><td><button class="btn btn-default">默认</button></td><td>次要操作</td></tr>
+        <tr><td>Link</td><td><button class="btn btn-link">链接</button></td><td>表格内操作，如"编辑"</td></tr>
+        <tr><td>Link Danger</td><td><button class="btn btn-link danger">删除</button></td><td>表格内删除操作</td></tr>
+      </table>
+
+      <h3>A2. 状态标签规范</h3>
+      <table>
+        <tr><th>状态</th><th>标签样式</th><th>应用场景</th></tr>
+        <tr><td>启用/成功/完成</td><td><span class="badge badge-green">绿色标签</span></td><td>active, success, completed 等正向状态</td></tr>
+        <tr><td>运行中/进行中</td><td><span class="badge badge-blue">蓝色标签</span></td><td>running, in_progress 等进行中状态</td></tr>
+        <tr><td>暂停/待处理</td><td><span class="badge badge-orange">橙色标签</span></td><td>paused, pending 等中间状态</td></tr>
+        <tr><td>停用/失败/删除</td><td><span class="badge badge-red">红色标签</span></td><td>inactive, failed 等负向状态</td></tr>
+        <tr><td>草稿/默认</td><td><span class="badge badge-gray">灰色标签</span></td><td>draft, default 等未激活状态</td></tr>
+      </table>
+
+      <h3>A3. 消息提示规范</h3>
+      <table>
+        <tr><th>消息类型</th><th>使用场景</th><th>示例</th></tr>
+        <tr><td>成功消息</td><td>操作成功完成</td><td>"商品创建成功"、"规则已保存"</td></tr>
+        <tr><td>警告消息</td><td>操作警告但不阻止</td><td>"实验已暂停"</td></tr>
+        <tr><td>错误消息</td><td>操作失败</td><td>"只能上传图片文件"</td></tr>
+      </table>
+
+      <h3>A4. 技术栈说明</h3>
+      <table>
+        <tr><th>技术</th><th>版本</th><th>用途</th></tr>
+        <tr><td>Next.js</td><td>16.2.6</td><td>React 框架，App Router</td></tr>
+        <tr><td>React</td><td>19.2.4</td><td>UI 库</td></tr>
+        <tr><td>Ant Design</td><td>6.4.3</td><td>UI 组件库</td></tr>
+        <tr><td>@dnd-kit</td><td>core 6.3.1 / sortable 10.0.0</td><td>拖拽排序</td></tr>
+        <tr><td>Recharts</td><td>3.8.1</td><td>图表组件</td></tr>
+        <tr><td>dayjs</td><td>1.11.20</td><td>日期处理</td></tr>
+      </table>
+
+      <h3>A5. 页面状态规范</h3>
+      <table>
+        <tr><th>状态类型</th><th>触发场景</th><th>视觉表现</th><th>交互行为</th></tr>
+        <tr><td>加载中</td><td>页面初始化、列表刷新、搜索筛选</td><td>骨架屏 (Skeleton) 或 Spinner，背景半透明遮罩</td><td>禁止所有操作按钮</td></tr>
+        <tr><td>空状态</td><td>首次访问、搜索无结果、数据全部删除</td><td>空状态插图 + 说明文案 + 主操作按钮</td><td>点击主按钮可跳转创建</td></tr>
+        <tr><td>错误状态</td><td>网络错误、接口超时、服务不可用</td><td>错误图标 + 错误信息 + 重试按钮</td><td>点击重试刷新数据</td></tr>
+        <tr><td>无权限</td><td>用户角色无权访问该页面/功能</td><td>锁定图标 + "无访问权限" + 返回按钮</td><td>点击返回上一页或首页</td></tr>
+      </table>
+
+      <h4>空状态示例</h4>
+      <div class="state-card">
+        <div class="state-icon">📦</div>
+        <div class="state-title">暂无数据</div>
+        <div class="state-desc">当前没有可显示的内容，点击下方按钮创建第一个项目</div>
+        <button class="btn btn-primary">创建商品</button>
+      </div>
+
+      <h4>加载状态示例</h4>
+      <div class="state-card">
+        <div class="skeleton-lines">
+          <div class="skeleton-line" style="width: 60%;"></div>
+          <div class="skeleton-line" style="width: 80%;"></div>
+          <div class="skeleton-line" style="width: 40%;"></div>
+          <div class="skeleton-line" style="width: 70%;"></div>
+          <div class="skeleton-line" style="width: 55%;"></div>
+        </div>
+      </div>
+
+      <h4>错误状态示例</h4>
+      <div class="state-card">
+        <div class="state-icon">⚠️</div>
+        <div class="state-title">加载失败</div>
+        <div class="state-desc">网络连接出现问题，请检查网络后重试</div>
+        <button class="btn btn-primary">重新加载</button>
+      </div>
+
+      <h3>A6. 数据字段规范</h3>
+      <table>
+        <tr><th>字段类型</th><th>格式要求</th><th>示例</th></tr>
+        <tr><td>日期</td><td>YYYY-MM-DD</td><td>2026-05-19</td></tr>
+        <tr><td>时间</td><td>YYYY-MM-DD HH:mm:ss</td><td>2026-05-19 14:30:00</td></tr>
+        <tr><td>金额</td><td>¥{整数}，保留2位小数需单独说明</td><td>¥72,000 / ¥99.00</td></tr>
+        <tr><td>百分比</td><td>{数字}%</td><td>6.3% / 12.5%</td></tr>
+        <tr><td>用户ID</td><td>脱敏显示 user_***123</td><td>user_***456</td></tr>
+        <tr><td>千分位数字</td><td>使用逗号分隔，每3位</td><td>1,250 / 125,800</td></tr>
+      </table>
+
+      <h3>A7. 分页规范</h3>
+      <table>
+        <tr><th>配置项</th><th>默认值</th><th>可选值</th></tr>
+        <tr><td>每页条数</td><td>10</td><td>10 / 20 / 50 / 100</td></tr>
+        <tr><td>显示总数</td><td>是</td><td>是 / 否</td></tr>
+        <tr><td>快速跳转</td><td>是</td><td>是 / 否 (输入页码跳转)</td></tr>
+      </table>
+
+      <h3>A8. 表单校验规则</h3>
+      <table>
+        <tr><th>字段</th><th>规则</th><th>错误提示示例</th></tr>
+        <tr><td>名称/标题</td><td>必填，最大100字符</td><td>"请输入名称"、"名称不能超过100个字符"</td></tr>
+        <tr><td>价格</td><td>必填，正数，最多2位小数</td><td>"请输入价格"、"价格必须大于0"</td></tr>
+        <tr><td>邮箱</td><td>必填，合法邮箱格式</td><td>"请输入邮箱"、"邮箱格式不正确"</td></tr>
+        <tr><td>URL</td><td>选填，合法URL格式 (http/https)</td><td>"请输入正确的网址"</td></tr>
+        <tr><td>手机号</td><td>选填，11位数字，1开头</td><td>"手机号格式不正确"</td></tr>
+        <tr><td>优先级</td><td>必填，整数，范围1-99</td><td>"请输入优先级"、"优先级范围为1-99"</td></tr>
+        <tr><td>描述/备注</td><td>选填，最大500字符</td><td>"描述不能超过500个字符"</td></tr>
+      </table>
+
+      <h4>校验时机</h4>
+      <div class="flow">
+        <span class="flow-item">失焦校验</span>
+        <span class="flow-arrow">→</span>
+        <span class="flow-item">实时校验</span>
+        <span class="flow-arrow">→</span>
+        <span class="flow-item">提交校验</span>
+      </div>
+      <ul style="margin-left: 20px; color: var(--text-secondary);">
+        <li><strong>失焦校验:</strong> 用户离开输入框时触发</li>
+        <li><strong>实时校验:</strong> 输入过程中实时检查 (debounce 300ms)</li>
+        <li><strong>提交校验:</strong> 点击提交按钮时统一校验所有字段</li>
+      </ul>
+
+      <h4>错误提示样式</h4>
+      <div class="note">
+        <strong>字段级错误:</strong> 红色边框 + 错误提示文字显示在输入框下方<br>
+        <strong>表单级错误:</strong> 顶部醒目提示，显示所有错误列表
+      </div>
+    </div>
+
+    <div style="text-align: center; padding: 40px; color: #999; font-size: 14px;">
+      <p>Hydra Admin 交互设计文档 v1.0</p>
+      <p>最后更新: 2026-05-19</p>
+    </div>
+  </main>
+
+  <!-- 回到顶部按钮 -->
+  <div class="back-to-top" onclick="window.scrollTo({top: 0, behavior: 'smooth'})"></div>
+
+  <!-- 导航高亮脚本 -->
+  <script>
+    // 导航高亮
+    const navItems = document.querySelectorAll('.nav-item');
+    const sections = document.querySelectorAll('.module, .page-intro + *');
+
+    // 滚动时更新高亮
+    window.addEventListener('scroll', () => {
+      let current = '';
+      document.querySelectorAll('div[id]').forEach(div => {
+        const sectionTop = div.offsetTop;
+        if (window.scrollY >= sectionTop - 200) {
+          current = div.getAttribute('id');
+        }
+      });
+
+      navItems.forEach(item => {
+        item.classList.remove('active');
+        if (item.getAttribute('href') === '#' + current) {
+          item.classList.add('active');
+        }
+      });
+    });
+
+    // 点击导航平滑滚动
+    navItems.forEach(item => {
+      item.addEventListener('click', (e) => {
+        e.preventDefault();
+        const targetId = item.getAttribute('href').substring(1);
+        const target = document.getElementById(targetId);
+        if (target) {
+          target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      });
+    });
+  </script>
+</body>
+</html>
