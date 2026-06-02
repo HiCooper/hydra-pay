@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useParams } from 'react-router-dom'
 import { Spin } from 'antd'
-import { CheckCircleFilled } from '@ant-design/icons'
+import { CheckCircleFilled, SafetyOutlined } from '@ant-design/icons'
 import { getCheckout } from '../api/checkout'
 import { formatAmount } from '../utils'
 
@@ -68,22 +68,34 @@ export default function SuccessPage() {
     <div style={embed ? styles.pageEmbed : styles.page}>
       <div style={{ ...styles.card, ...(embed ? styles.cardEmbed : {}) }}>
         <div style={{ padding: '60px 36px', textAlign: 'center' }}>
+          {/* Success icon — Stripe green */}
           <div style={{
-            width: 72, height: 72, background: '#52c41a', borderRadius: '50%',
+            width: 72, height: 72, background: '#04d66f', borderRadius: '50%',
             display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-            marginBottom: 20, animation: 'pop 0.4s ease',
+            marginBottom: 24, animation: 'pop 0.4s ease',
           }}>
             <CheckCircleFilled style={{ fontSize: 36, color: '#fff' }} />
           </div>
-          <h2 style={{ fontSize: 22, fontWeight: 700, marginBottom: 8 }}>支付成功</h2>
-          <p style={{ fontSize: 28, fontWeight: 600, color: '#52c41a', marginBottom: 20 }}>
+
+          <h2 style={{
+            fontSize: 22, fontWeight: 600, color: '#1a1a1a',
+            margin: '0 0 8px', letterSpacing: '-0.2px',
+          }}>
+            支付成功
+          </h2>
+
+          <p style={{
+            fontSize: 28, fontWeight: 700, color: '#04d66f',
+            margin: '0 0 24px', letterSpacing: '-0.3px',
+          }}>
             ¥ {amount}
           </p>
+
           {embed ? (
-            <p style={{ fontSize: 14, color: '#999' }}>请关闭此窗口</p>
+            <p style={{ fontSize: 14, color: '#6b6b6b', margin: 0 }}>请关闭此窗口</p>
           ) : (
             <>
-              <p style={{ fontSize: 14, color: '#999' }}>
+              <p style={{ fontSize: 14, color: '#6b6b6b', margin: '0 0 16px' }}>
                 {countdown > 0
                   ? `即将跳转回商户页面... ${countdown} 秒`
                   : '正在跳转...'}
@@ -91,7 +103,10 @@ export default function SuccessPage() {
               {session?.success_url && (
                 <a
                   href={session.success_url}
-                  style={{ color: '#1677ff', fontSize: 13, textDecoration: 'none', marginTop: 12, display: 'inline-block' }}
+                  style={{
+                    color: '#de481b', fontSize: 14, fontWeight: 500,
+                    textDecoration: 'none', display: 'inline-block',
+                  }}
                 >
                   立即跳转 →
                 </a>
@@ -100,12 +115,24 @@ export default function SuccessPage() {
           )}
         </div>
       </div>
+
       {!embed && (
-        <p style={{ textAlign: 'center', fontSize: 12, color: '#bbb', marginTop: 24 }}>
+        <p style={{
+          textAlign: 'center', fontSize: 12, color: '#bbb', marginTop: 24,
+          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4,
+        }}>
+          <SafetyOutlined style={{ fontSize: 11, color: '#04d66f' }} />
           Powered by HydraPay
         </p>
       )}
-      <style>{`@keyframes pop { 0% { transform: scale(0); } 70% { transform: scale(1.1); } 100% { transform: scale(1); } }`}</style>
+
+      <style>{`
+        @keyframes pop {
+          0% { transform: scale(0); opacity: 0; }
+          60% { transform: scale(1.08); }
+          100% { transform: scale(1); opacity: 1; }
+        }
+      `}</style>
     </div>
   )
 }
@@ -113,7 +140,7 @@ export default function SuccessPage() {
 const styles = {
   page: {
     minHeight: '100vh',
-    background: '#f0f2f5',
+    background: '#f7f7f7',
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
@@ -130,13 +157,15 @@ const styles = {
   card: {
     background: '#fff',
     borderRadius: 12,
-    boxShadow: '0 2px 16px rgba(0,0,0,0.08)',
+    boxShadow: '0 2px 24px rgba(0,0,0,0.08)',
     width: '100%',
     maxWidth: 420,
+    border: '1px solid #e6e6e6',
   },
   cardEmbed: {
     borderRadius: 0,
     boxShadow: 'none',
     maxWidth: '100%',
+    border: 'none',
   },
 }

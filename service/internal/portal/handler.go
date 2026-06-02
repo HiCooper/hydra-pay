@@ -265,6 +265,12 @@ func (h *Handler) UpdateSettings(c *gin.Context) {
 
 func (h *Handler) ListPaymentLinks(c *gin.Context) {
 	appIDs := h.merchantAppIDs(getMerchantID(c))
+
+	// Expire stale sessions before listing
+	h.db.Model(&model.CheckoutSession{}).
+		Where("app_id IN ? AND status = ? AND expires_at <= ?", appIDs, model.CheckoutSessionOpen, time.Now()).
+		Update("status", model.CheckoutSessionExpired)
+
 	var sessions []model.CheckoutSession
 	h.db.Where("app_id IN ?", appIDs).Order("created_at DESC").Limit(100).Find(&sessions)
 
@@ -295,7 +301,7 @@ func (h *Handler) ListPaymentLinks(c *gin.Context) {
 			CancelURL:   s.CancelURL,
 			ExpiresAt:   s.ExpiresAt.Format(time.RFC3339),
 			CreatedAt:   s.CreatedAt.Format(time.RFC3339),
-			CheckoutURL: "/pay/checkout/" + s.ID.String(),
+			CheckoutURL: "/pay/v2/checkout/" + s.ID.String(),
 		})
 	}
 	response.Success(c, gin.H{"payment_links": links})
@@ -356,7 +362,7 @@ func (h *Handler) CreatePaymentLink(c *gin.Context) {
 		"cancel_url":   session.CancelURL,
 		"expires_at":   session.ExpiresAt.Format(time.RFC3339),
 		"created_at":   session.CreatedAt.Format(time.RFC3339),
-		"checkout_url": "/pay/checkout/" + session.ID.String(),
+		"checkout_url": "/pay/v2/checkout/" + session.ID.String(),
 	})
 }
 
@@ -439,8 +445,11 @@ func (h *Handler) InitiateOnboarding(c *gin.Context) {
 		response.Error(c, http.StatusBadRequest, "INVALID_BODY", "channel, merchant_name, contact_name, contact_phone are required")
 		return
 	}
-	if req.Channel != model.ChannelAlipay && req.Channel != model.ChannelWechat {
-		response.Error(c, http.StatusBadRequest, "INVALID_CHANNEL", "channel must be 'alipay' or 'wechat'")
+
+	// Validate channel exists and supports onboarding
+	var pc model.PaymentChannel
+	if err := h.db.Where("key = ? AND enabled = true AND supports_onboarding = true", req.Channel).First(&pc).Error; err != nil {
+		response.Error(c, http.StatusBadRequest, "INVALID_CHANNEL", "channel not found or does not support onboarding: "+req.Channel)
 		return
 	}
 
@@ -512,7 +521,7 @@ func (h *Handler) GetOnboardingStatus(c *gin.Context) {
 	merchantID := getMerchantID(c)
 	records, err := h.onboardingRepo.GetByMerchantID(merchantID)
 	if err != nil || len(records) == 0 {
-		response.Error(c, http.StatusNotFound, "NOT_FOUND", "no onboarding record found")
+		response.Success(c, nil)
 		return
 	}
 
@@ -569,3 +578,51 @@ func (h *Handler) autoUpdateMerchant(merchantID uuid.UUID, channel, subMerchantI
 	}
 	h.db.Model(&model.Merchant{}).Where("id = ?", merchantID).Update(field, subMerchantID)
 }
+
+	// ---- Channels ----
+
+	func (h *Handler) ListChannels(c *gin.Context) {
+		merchantID := getMerchantID(c)
+		var m model.Merchant
+		if err := h.db.First(&m, "id = ?", merchantID).Error; err != nil {
+			response.Error(c, http.StatusNotFound, "NOT_FOUND", "merchant not found")
+			return
+		}
+
+		type ChannelInfo struct {
+			Key        string `json:"key"`
+			Label      string `json:"label"`
+			Configured bool   `json:"configured"`
+		}
+
+		var pcs []model.PaymentChannel
+		if err := h.db.Where("enabled = true").Order("sort_order ASC").Find(&pcs).Error; err != nil {
+			response.Error(c, http.StatusInternalServerError, "DB_ERROR", err.Error())
+			return
+		}
+
+		configured := func(channel string) bool {
+			switch channel {
+			case model.ChannelAlipay:
+				return m.AlipayPID != ""
+			case model.ChannelWechat:
+				return m.WechatSubMchid != ""
+			case model.ChannelUnionpay:
+				return m.UnionpaySubMerID != ""
+			case model.ChannelEcny:
+				return m.EcnySubMerID != ""
+			}
+			return false
+		}
+
+		channels := make([]ChannelInfo, 0, len(pcs))
+		for _, pc := range pcs {
+			channels = append(channels, ChannelInfo{
+				Key:        pc.Key,
+				Label:      pc.Label,
+				Configured: configured(pc.Key),
+			})
+		}
+
+		response.Success(c, gin.H{"channels": channels})
+	}

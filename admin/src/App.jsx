@@ -1,12 +1,11 @@
 import { Routes, Route, useNavigate, useLocation } from 'react-router-dom'
 import { Layout, Menu } from 'antd'
-import { DashboardOutlined, AppstoreOutlined, OrderedListOutlined, ToolOutlined, SettingOutlined, ShopOutlined } from '@ant-design/icons'
+import { DashboardOutlined, OrderedListOutlined, ToolOutlined, WalletOutlined, ShopOutlined } from '@ant-design/icons'
 import Dashboard from './views/Dashboard.jsx'
-import Apps from './views/Apps.jsx'
 import Orders from './views/Orders.jsx'
-import Config from './views/Config.jsx'
 import Tools from './views/Tools.jsx'
 import Merchants from './views/Merchants.jsx'
+import Channels from './views/Channels.jsx'
 import './index.css'
 
 const { Sider, Content } = Layout
@@ -14,10 +13,9 @@ const { Sider, Content } = Layout
 const navItems = [
   { key: '/', label: '仪表盘', icon: <DashboardOutlined /> },
   { key: '/merchants', label: '商户管理', icon: <ShopOutlined /> },
-  { key: '/apps', label: '应用管理', icon: <AppstoreOutlined /> },
   { key: '/orders', label: '支付订单', icon: <OrderedListOutlined /> },
+  { key: '/channels', label: '支付渠道', icon: <WalletOutlined /> },
   { key: '/tools', label: '测试工具', icon: <ToolOutlined /> },
-  { key: '/config', label: '渠道配置', icon: <SettingOutlined /> },
 ]
 
 export default function App() {
@@ -53,9 +51,8 @@ export default function App() {
         <Routes>
           <Route path="/" element={<Dashboard />} />
           <Route path="/merchants" element={<Merchants />} />
-          <Route path="/apps" element={<Apps />} />
           <Route path="/orders" element={<Orders />} />
-          <Route path="/config" element={<Config />} />
+          <Route path="/channels" element={<Channels />} />
           <Route path="/tools" element={<Tools />} />
         </Routes>
       </Content>

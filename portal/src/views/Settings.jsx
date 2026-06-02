@@ -18,9 +18,18 @@ export default function Settings({ merchant, onUpdate }) {
 
   return (
     <div>
-      <h2 style={{ fontSize: 18, fontWeight: 600, marginBottom: 20 }}>账户设置</h2>
+      <h2 className="page-heading">账户设置</h2>
+      <p className="page-subtitle">管理联系信息和账户安全</p>
 
-      <Card title="基本信息" style={{ marginBottom: 16 }}>
+      {/* Basic Info */}
+      <Card
+        title={<span style={{ fontSize: 15, fontWeight: 600, color: '#1a1a1a' }}>基本信息</span>}
+        style={{ borderRadius: 8, marginBottom: 16 }}
+        styles={{
+          header: { borderBottom: '1px solid #f0f0f0', padding: '18px 24px' },
+          body: { padding: '20px 24px' },
+        }}
+      >
         <Form
           form={form}
           layout="vertical"
@@ -42,7 +51,15 @@ export default function Settings({ merchant, onUpdate }) {
         </Form>
       </Card>
 
-      <Card title="修改密码" style={{ marginBottom: 16 }}>
+      {/* Change Password */}
+      <Card
+        title={<span style={{ fontSize: 15, fontWeight: 600, color: '#1a1a1a' }}>修改密码</span>}
+        style={{ borderRadius: 8, marginBottom: 16 }}
+        styles={{
+          header: { borderBottom: '1px solid #f0f0f0', padding: '18px 24px' },
+          body: { padding: '20px 24px' },
+        }}
+      >
         <Form
           layout="vertical"
           onFinish={async (values) => {
@@ -68,16 +85,57 @@ export default function Settings({ merchant, onUpdate }) {
         </Form>
       </Card>
 
-      <Card title="渠道信息">
-        <Descriptions column={1} size="small">
-          <Descriptions.Item label="支付宝 PID">
-            {merchant.alipay_pid ? <code>{merchant.alipay_pid}</code> : <Text type="secondary">未配置（需完成进件）</Text>}
+      {/* Channel Info */}
+      <Card
+        title={<span style={{ fontSize: 15, fontWeight: 600, color: '#1a1a1a' }}>渠道信息</span>}
+        style={{ borderRadius: 8 }}
+        styles={{
+          header: { borderBottom: '1px solid #f0f0f0', padding: '18px 24px' },
+          body: { padding: '20px 24px' },
+        }}
+      >
+        <Descriptions column={1} size="small" colon={false}>
+          <Descriptions.Item
+            label={<span style={{ color: '#6b6b6b', fontSize: 13 }}>支付宝 PID</span>}
+          >
+            {merchant.alipay_pid ? (
+              <code style={{
+                fontSize: 13, color: '#1a1a1a',
+                fontFamily: "'SF Mono', Menlo, Monaco, monospace",
+              }}>
+                {merchant.alipay_pid}
+              </code>
+            ) : (
+              <Text type="secondary" style={{ fontSize: 13 }}>未配置（请先申请支付渠道）</Text>
+            )}
           </Descriptions.Item>
-          <Descriptions.Item label="微信子商户号">
-            {merchant.wechat_sub_mchid ? <code>{merchant.wechat_sub_mchid}</code> : <Text type="secondary">未配置（需完成进件）</Text>}
+          <Descriptions.Item
+            label={<span style={{ color: '#6b6b6b', fontSize: 13 }}>微信子商户号</span>}
+          >
+            {merchant.wechat_sub_mchid ? (
+              <code style={{
+                fontSize: 13, color: '#1a1a1a',
+                fontFamily: "'SF Mono', Menlo, Monaco, monospace",
+              }}>
+                {merchant.wechat_sub_mchid}
+              </code>
+            ) : (
+              <Text type="secondary" style={{ fontSize: 13 }}>未配置（请先申请支付渠道）</Text>
+            )}
           </Descriptions.Item>
-          <Descriptions.Item label="微信子商户 AppID">
-            {merchant.wechat_sub_appid ? <code>{merchant.wechat_sub_appid}</code> : <Text type="secondary">未配置</Text>}
+          <Descriptions.Item
+            label={<span style={{ color: '#6b6b6b', fontSize: 13 }}>微信子商户 AppID</span>}
+          >
+            {merchant.wechat_sub_appid ? (
+              <code style={{
+                fontSize: 13, color: '#1a1a1a',
+                fontFamily: "'SF Mono', Menlo, Monaco, monospace",
+              }}>
+                {merchant.wechat_sub_appid}
+              </code>
+            ) : (
+              <Text type="secondary" style={{ fontSize: 13 }}>未配置</Text>
+            )}
           </Descriptions.Item>
         </Descriptions>
       </Card>

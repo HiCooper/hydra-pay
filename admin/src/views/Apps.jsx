@@ -31,10 +31,10 @@ export default function Apps() {
 
   async function handleEdit(values) {
     const payload = {}
-    if (values.Name !== undefined) payload.name = values.Name
-    if (values.Status !== undefined) payload.status = values.Status
-    if (values.WebhookURL !== undefined) payload.webhook_url = values.WebhookURL
-    await api.updateApp(editing.ID, payload)
+    if (values.name !== undefined) payload.name = values.name
+    if (values.status !== undefined) payload.status = values.status
+    if (values.webhook_url !== undefined) payload.webhook_url = values.webhook_url
+    await api.updateApp(editing.id, payload)
     setEditing(null)
     message.success('已保存')
     load()
@@ -46,13 +46,13 @@ export default function Apps() {
   }
 
   const merchantMap = {}
-  merchants.forEach(m => { merchantMap[m.ID] = m.Name })
+  merchants.forEach(m => { merchantMap[m.id] = m.name })
 
   const columns = [
-    { title: '名称', dataIndex: 'Name', width: 160 },
-    { title: '归属商户', dataIndex: 'MerchantID', width: 160, render: v => merchantMap[v] || v || '—' },
+    { title: '名称', dataIndex: 'name', width: 160 },
+    { title: '归属商户', dataIndex: 'merchant_id', width: 160, render: v => merchantMap[v] || v || '—' },
     {
-      title: 'API Key', dataIndex: 'APIKey', width: 220,
+      title: 'API Key', dataIndex: 'api_key', width: 220,
       render: v => (
         <Space>
           <code style={{ fontSize: 12 }}>{v?.slice(0, 16)}...</code>
@@ -61,7 +61,7 @@ export default function Apps() {
       ),
     },
     {
-      title: '状态', dataIndex: 'Status', width: 80,
+      title: '状态', dataIndex: 'status', width: 80,
       render: v => <Tag color={v === 'active' ? 'green' : 'default'}>{v}</Tag>,
     },
     {
@@ -79,7 +79,7 @@ export default function Apps() {
         <Button type="primary" icon={<PlusOutlined />} onClick={() => setOpenCreate(true)}>创建应用</Button>
       </div>
 
-      <Table columns={columns} dataSource={apps} rowKey="ID" loading={loading} size="middle"
+      <Table columns={columns} dataSource={apps} rowKey="id" loading={loading} size="middle"
         locale={{ emptyText: '暂无应用，请先创建商户' }}
       />
 
@@ -88,7 +88,7 @@ export default function Apps() {
           <Form.Item name="merchant_id" label="归属商户" rules={[{ required: true, message: '请选择商户' }]}>
             <Select
               placeholder="选择商户"
-              options={merchants.filter(m => m.Status === 'active').map(m => ({ value: m.ID, label: m.Name }))}
+              options={merchants.filter(m => m.status === 'active').map(m => ({ value: m.id, label: m.name }))}
               showSearch
               filterOption={(input, option) => option.label.toLowerCase().includes(input.toLowerCase())}
             />
@@ -100,11 +100,11 @@ export default function Apps() {
         </Form>
       </Modal>
 
-      <Modal title={`编辑 · ${editing?.Name || ''}`} open={!!editing} onCancel={() => setEditing(null)} onOk={() => editForm.submit()} destroyOnClose>
+      <Modal title={`编辑 · ${editing?.name || ''}`} open={!!editing} onCancel={() => setEditing(null)} onOk={() => editForm.submit()} destroyOnClose>
         <Form form={editForm} layout="vertical" onFinish={handleEdit} initialValues={editing || {}}>
-          <Form.Item name="Name" label="名称"><Input /></Form.Item>
-          <Form.Item name="WebhookURL" label="Webhook 回调地址"><Input /></Form.Item>
-          <Form.Item name="Status" label="状态">
+          <Form.Item name="name" label="名称"><Input /></Form.Item>
+          <Form.Item name="webhook_url" label="Webhook 回调地址"><Input /></Form.Item>
+          <Form.Item name="status" label="状态">
             <Select options={[{ value: 'active', label: 'active' }, { value: 'disabled', label: 'disabled' }]} />
           </Form.Item>
         </Form>

@@ -87,7 +87,8 @@ func (a *Adapter) createQRCodePayment(ctx context.Context, req *channel.CreatePa
 	p.TotalAmount = amount
 	p.Subject = truncate(req.Description, 256)
 	p.ProductCode = "FACE_TO_FACE_PAYMENT"
-	p.NotifyURL = a.config.NotifyURL
+		p.TimeoutExpress = "15m"
+		p.NotifyURL = a.config.NotifyURL
 	if req.NotifyURL != "" {
 		p.NotifyURL = req.NotifyURL
 	}
@@ -140,7 +141,7 @@ func (a *Adapter) createAppPayment(ctx context.Context, req *channel.CreatePayme
 	p.TotalAmount = amount
 	p.Subject = truncate(req.Description, 256)
 	p.ProductCode = "QUICK_MSECURITY_PAY"
-	p.NotifyURL = a.config.NotifyURL
+		p.NotifyURL = a.config.NotifyURL
 	if req.NotifyURL != "" {
 		p.NotifyURL = req.NotifyURL
 	}
@@ -186,7 +187,7 @@ func (a *Adapter) createH5Payment(ctx context.Context, req *channel.CreatePaymen
 	p.TotalAmount = amount
 	p.Subject = truncate(req.Description, 256)
 	p.ProductCode = "QUICK_WAP_WAY"
-	p.NotifyURL = a.config.NotifyURL
+		p.NotifyURL = a.config.NotifyURL
 	if req.NotifyURL != "" {
 		p.NotifyURL = req.NotifyURL
 	}

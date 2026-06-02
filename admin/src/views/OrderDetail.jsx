@@ -4,8 +4,8 @@ import { Descriptions, Tag, Table, Button, Result, Statistic } from 'antd'
 import { ArrowLeftOutlined } from '@ant-design/icons'
 import { api } from '../api/index.js'
 
-const statusLabel = { pending: '待支付', processing: '支付中', paid: '支付成功', failed: '支付失败', cancelled: '已取消', refunded: '已退款' }
-const statusColor = { pending: 'orange', processing: 'blue', paid: 'green', failed: 'red', cancelled: 'default', refunded: 'default' }
+const statusLabel = { pending: '待支付', processing: '支付中', paid: '支付成功', failed: '支付失败', create_failed: '创建失败', expired: '已过期', cancelled: '已取消', refunded: '已退款' }
+const statusColor = { pending: 'orange', processing: 'blue', paid: 'green', failed: 'red', create_failed: 'red', expired: 'default', cancelled: 'default', refunded: 'default' }
 const chLabel = { alipay: '支付宝', wechat: '微信支付' }
 const eventTypeLabel = { created: '创建', channel_request: '渠道请求', callback_received: '回调到达', status_changed: '状态变更', webhook_sent: 'Webhook', refund: '退款' }
 function fmtResult(v) { if (!v) return ''; return typeof v === 'string' ? v : JSON.stringify(v) }

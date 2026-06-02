@@ -8,21 +8,23 @@ import (
 )
 
 type Merchant struct {
-	ID           uuid.UUID `gorm:"type:uuid;default:gen_random_uuid();primaryKey"`
-	Name         string    `gorm:"type:varchar(255);not null"`
-	Email        string    `gorm:"type:varchar(255);not null;uniqueIndex"`
-	PasswordHash string    `gorm:"type:varchar(255);not null"`
-	ContactName  string    `gorm:"type:varchar(100)"`
-	ContactPhone string    `gorm:"type:varchar(30)"`
-	Status       string    `gorm:"type:varchar(20);default:active"`
+	ID           uuid.UUID `gorm:"type:uuid;default:gen_random_uuid();primaryKey" json:"id"`
+	Name         string    `gorm:"type:varchar(255);not null"                      json:"name"`
+	Email        string    `gorm:"type:varchar(255);not null;uniqueIndex"          json:"email"`
+	PasswordHash string    `gorm:"type:varchar(255);not null"                      json:"-"`
+	ContactName  string    `gorm:"type:varchar(100)"                               json:"contact_name"`
+	ContactPhone string    `gorm:"type:varchar(30)"                                json:"contact_phone"`
+	Status       string    `gorm:"type:varchar(20);default:active"                 json:"status"`
 
 	// Service provider sub-merchant IDs
-	AlipayPID      string `gorm:"type:varchar(64)"`
-	WechatSubMchid string `gorm:"type:varchar(32)"`
-	WechatSubAppid string `gorm:"type:varchar(32)"`
+	AlipayPID         string `gorm:"type:varchar(64)" json:"alipay_pid"`
+	WechatSubMchid    string `gorm:"type:varchar(32)" json:"wechat_sub_mchid"`
+	WechatSubAppid    string `gorm:"type:varchar(32)" json:"wechat_sub_appid"`
+	UnionpaySubMerID  string `gorm:"type:varchar(64)" json:"unionpay_sub_mer_id"`
+	EcnySubMerID      string `gorm:"type:varchar(64)" json:"ecny_sub_mer_id"`
 
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 func (m *Merchant) SetPassword(password string) error {

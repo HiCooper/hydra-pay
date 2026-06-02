@@ -82,6 +82,10 @@ func (h *PaymentHandler) CreatePayment(c *gin.Context) {
 					req.SubMerchantID = merchant.AlipayPID
 				case model.ChannelWechat:
 					req.SubMerchantID = merchant.WechatSubMchid
+				case model.ChannelUnionpay:
+					req.SubMerchantID = merchant.UnionpaySubMerID
+				case model.ChannelEcny:
+					req.SubMerchantID = merchant.EcnySubMerID
 				}
 				if req.SubMerchantID != "" && req.SubChannelAppID == "" {
 					req.SubChannelAppID = merchant.WechatSubAppid
@@ -204,8 +208,8 @@ func (h *PaymentHandler) Callback(c *gin.Context) {
 	}
 
 	// Return channel-specific response
-	// Alipay expects "success" plain text; WeChat expects JSON
-	if channelName == model.ChannelAlipay {
+	// Alipay and UnionPay expect "success" plain text; WeChat expects JSON
+	if channelName == model.ChannelAlipay || channelName == model.ChannelUnionpay || channelName == model.ChannelEcny {
 		c.String(http.StatusOK, "success")
 	} else {
 		response.Success(c, gin.H{"code": "SUCCESS", "message": "ok"})

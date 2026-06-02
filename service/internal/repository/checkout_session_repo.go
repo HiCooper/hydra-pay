@@ -28,11 +28,24 @@ func (r *CheckoutSessionRepository) GetByID(id uuid.UUID) (*model.CheckoutSessio
 	return &s, nil
 }
 
+// LinkPayment associates a payment with the session without changing its status.
+// The session stays "open" until the payment callback confirms success.
+func (r *CheckoutSessionRepository) LinkPayment(id uuid.UUID, paymentID uuid.UUID) error {
+	return r.db.Model(&model.CheckoutSession{}).Where("id = ?", id).Update("payment_id", paymentID).Error
+}
+
 func (r *CheckoutSessionRepository) MarkCompleted(id uuid.UUID, paymentID uuid.UUID) error {
 	return r.db.Model(&model.CheckoutSession{}).Where("id = ?", id).Updates(map[string]interface{}{
 		"status":     model.CheckoutSessionCompleted,
 		"payment_id": paymentID,
 	}).Error
+}
+
+// CompleteByPaymentID marks all sessions linked to the given payment as completed.
+func (r *CheckoutSessionRepository) CompleteByPaymentID(paymentID uuid.UUID) error {
+	return r.db.Model(&model.CheckoutSession{}).
+		Where("payment_id = ? AND status = ?", paymentID, model.CheckoutSessionOpen).
+		Update("status", model.CheckoutSessionCompleted).Error
 }
 
 func (r *CheckoutSessionRepository) ListByAppID(appID uuid.UUID) ([]model.CheckoutSession, error) {

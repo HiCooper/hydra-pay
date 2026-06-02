@@ -1,6 +1,48 @@
 @import "tailwindcss";
 
+/* ---- Stripe Checkout inspired global styles ---- */
+
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
 body {
   margin: 0;
+  padding: 0;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  color: #1a1a1a;
+  background: #f7f7f7;
+}
+
+/* Ant Design overrides */
+.ant-btn-primary {
+  box-shadow: none !important;
+}
+
+.ant-btn-primary:hover {
+  box-shadow: none !important;
+  opacity: 0.92;
+}
+
+.ant-modal-content {
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.12);
+}
+
+.ant-message .ant-message-notice-content {
+  border-radius: 8px;
+}
+
+.ant-spin .ant-spin-dot-item {
+  background-color: #de481b;
+}
+
+/* QR canvas */
+canvas {
+  image-rendering: pixelated;
 }

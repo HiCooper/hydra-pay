@@ -1,13 +1,13 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { Spin, Modal, Button, message } from 'antd'
-import { CheckCircleFilled, CloseCircleFilled, LeftOutlined, LockOutlined } from '@ant-design/icons'
+import { Spin, Modal, message } from 'antd'
+import { CheckCircleFilled, CloseCircleFilled, LeftOutlined, LockOutlined, SafetyOutlined } from '@ant-design/icons'
 import { getCheckout, activatePayment, getPaymentStatus } from '../api/checkout'
 import { isMobile, formatAmount } from '../utils'
 import ChannelCard from '../components/ChannelCard'
 import QRCodeSection from '../components/QRCodeSection'
 import CountdownTimer from '../components/CountdownTimer'
-import { AlipayLogo, WechatPayLogo } from '../components/ChannelLogos'
+import { AlipayLogo, WechatPayLogo, UnionpayLogo } from '../components/ChannelLogos'
 
 export default function CheckoutPage() {
   const { sessionId } = useParams()
@@ -70,10 +70,21 @@ export default function CheckoutPage() {
     if (!selectedChannel) return
     setActivating(true)
     try {
-      const result = await activatePayment(sessionId, selectedChannel)
+      // 云闪付：桌面走原生扫码(native)，移动走H5跳转
+      const tradeType = selectedChannel === 'unionpay' ? (mobile ? 'h5' : 'native') : undefined
+      const result = await activatePayment(sessionId, selectedChannel, tradeType)
       setQrResult(result)
       if (mobile && result.payment_url) {
-        if (embed) {
+        if (selectedChannel === 'unionpay') {
+          // H5 返回的是完整 HTML，用 Blob URL 打开
+          const blob = new Blob([result.payment_url], { type: 'text/html' })
+          const url = URL.createObjectURL(blob)
+          if (embed) {
+            postToParent({ type: 'hydra-pay:redirect', sessionId, url })
+          } else {
+            window.location.href = url
+          }
+        } else if (embed) {
           postToParent({ type: 'hydra-pay:redirect', sessionId, url: result.payment_url })
         } else {
           window.location.href = result.payment_url
@@ -90,8 +101,8 @@ export default function CheckoutPage() {
 
   if (loading) {
     return (
-      <div style={embed ? styles.pageEmbed : styles.page}>
-        <div style={{ ...styles.container, ...(embed ? styles.containerEmbed : {}) }}>
+      <div style={embed ? s.pageEmbed : s.page}>
+        <div style={{ ...s.card, ...(embed ? s.cardEmbed : {}) }}>
           <div style={{ textAlign: 'center', padding: 80 }}><Spin size="large" /></div>
         </div>
       </div>
@@ -100,12 +111,12 @@ export default function CheckoutPage() {
 
   if (error) {
     return (
-      <div style={embed ? styles.pageEmbed : styles.page}>
-        <div style={{ ...styles.container, ...(embed ? styles.containerEmbed : {}) }}>
+      <div style={embed ? s.pageEmbed : s.page}>
+        <div style={{ ...s.card, ...(embed ? s.cardEmbed : {}) }}>
           <div style={{ textAlign: 'center', padding: 60 }}>
-            <CloseCircleFilled style={{ fontSize: 48, color: '#ff4d4f', marginBottom: 16 }} />
-            <h3 style={{ marginBottom: 8, color: '#333' }}>页面加载失败</h3>
-            <p style={{ color: '#999', fontSize: 14 }}>{error}</p>
+            <CloseCircleFilled style={{ fontSize: 48, color: '#df1b41', marginBottom: 16 }} />
+            <h3 style={{ marginBottom: 8, color: '#1a1a1a', fontSize: 18, fontWeight: 600 }}>页面加载失败</h3>
+            <p style={{ color: '#6b6b6b', fontSize: 14 }}>{error}</p>
           </div>
         </div>
       </div>
@@ -114,22 +125,22 @@ export default function CheckoutPage() {
 
   if (paid) {
     return (
-      <div style={embed ? styles.pageEmbed : styles.page}>
-        <div style={{ ...styles.container, ...(embed ? styles.containerEmbed : {}) }}>
+      <div style={embed ? s.pageEmbed : s.page}>
+        <div style={{ ...s.card, ...(embed ? s.cardEmbed : {}) }}>
           <div style={{ textAlign: 'center', padding: 60 }}>
-            <CheckCircleFilled style={{ fontSize: 48, color: '#52c41a', marginBottom: 16 }} />
-            <h3 style={{ marginBottom: 8 }}>支付成功</h3>
-            <p style={{ color: '#999', fontSize: 14 }}>即将跳转...</p>
+            <CheckCircleFilled style={{ fontSize: 48, color: '#04d66f', marginBottom: 16 }} />
+            <h3 style={{ marginBottom: 8, color: '#1a1a1a', fontSize: 18, fontWeight: 600 }}>支付成功</h3>
+            <p style={{ color: '#6b6b6b', fontSize: 14 }}>即将跳转...</p>
           </div>
         </div>
       </div>
     )
   }
 
-  // Server-reported terminal status — friendly pages matching Stripe UX
+  // Server-reported terminal status
   if (session.status === 'expired') {
     postToParent({ type: 'hydra-pay:expired', sessionId })
-    return <StatusPage icon={<CloseCircleFilled style={{ fontSize: 48, color: '#bfbfbf' }} />}
+    return <StatusPage icon={<CloseCircleFilled style={{ fontSize: 48, color: '#bbb' }} />}
       title="该支付链接已过期"
       subtitle="请联系商户重新发起支付"
       merchantName={session.merchant_name}
@@ -140,7 +151,7 @@ export default function CheckoutPage() {
 
   if (session.status === 'completed') {
     postToParent({ type: 'hydra-pay:completed', sessionId })
-    return <StatusPage icon={<CheckCircleFilled style={{ fontSize: 48, color: '#52c41a' }} />}
+    return <StatusPage icon={<CheckCircleFilled style={{ fontSize: 48, color: '#04d66f' }} />}
       title="该订单已支付完成"
       subtitle="如需帮助，请联系商户"
       merchantName={session.merchant_name}
@@ -154,60 +165,49 @@ export default function CheckoutPage() {
   const backUrl = session.cancel_url || '#'
 
   return (
-    <div style={embed ? styles.pageEmbed : styles.page}>
+    <div style={embed ? s.pageEmbed : s.page}>
       <div style={{
-        ...styles.container,
-        ...(embed ? styles.containerEmbed : {}),
-        ...(mobile ? styles.containerMobile : {}),
+        ...s.card,
+        ...(embed ? s.cardEmbed : {}),
+        ...(mobile ? s.cardMobile : {}),
       }}>
-        {/* ---- Left Column: Merchant + Payment ---- */}
-        <div style={{
-          ...styles.left,
-          ...(mobile ? styles.leftMobile : {}),
-        }}>
-          {/* Back to merchant */}
+
+        {/* ====== Left Column ====== */}
+        <div style={{ ...s.left, ...(mobile ? s.leftMobile : {}) }}>
+
+          {/* Back link */}
           {embed ? (
-            <button
-              onClick={() => postToParent({ type: 'hydra-pay:cancel', sessionId })}
-              style={{
-                display: 'inline-flex', alignItems: 'center', gap: 4,
-                fontSize: 13, color: '#666', textDecoration: 'none', marginBottom: 24,
-                background: 'none', border: 'none', cursor: 'pointer', padding: 0,
-              }}
-            >
+            <button onClick={() => postToParent({ type: 'hydra-pay:cancel', sessionId })} style={s.backLink}>
               <LeftOutlined style={{ fontSize: 11 }} />
               返回 {merchantName}
             </button>
           ) : (
-            <a
-              href={backUrl}
-              style={{
-                display: 'inline-flex', alignItems: 'center', gap: 4,
-                fontSize: 13, color: '#666', textDecoration: 'none', marginBottom: 24,
-              }}
-            >
+            <a href={backUrl} style={s.backLink}>
               <LeftOutlined style={{ fontSize: 11 }} />
               返回 {merchantName}
             </a>
           )}
 
+          {/* Trust badge — Stripe green */}
+          <div style={s.trustBadge}>
+            <SafetyOutlined style={{ fontSize: 13, color: '#04d66f', marginRight: 5 }} />
+            <span>安全支付</span>
+          </div>
+
           {/* Merchant name */}
-          <h2 style={{ fontSize: 18, fontWeight: 600, color: '#333', margin: '0 0 6px' }}>
-            {merchantName}
-          </h2>
+          <h2 style={s.merchantName}>{merchantName}</h2>
 
           {/* Description */}
           {session.description && (
-            <p style={{ fontSize: 14, color: '#999', margin: '0 0 32px' }}>
-              {session.description}
-            </p>
+            <p style={s.description}>{session.description}</p>
           )}
 
-          {/* Channel selection */}
-          <div style={{ marginBottom: 20 }}>
-            <div style={{ fontSize: 13, fontWeight: 500, color: '#333', marginBottom: 10 }}>
-              选择支付方式
-            </div>
+          {/* Divider */}
+          <div style={s.divider} />
+
+          {/* Payment method selection */}
+          <div style={{ marginBottom: 24 }}>
+            <div style={s.sectionLabel}>选择支付方式</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               <ChannelCard
                 channel="alipay"
@@ -219,87 +219,113 @@ export default function CheckoutPage() {
                 active={selectedChannel === 'wechat'}
                 onClick={() => handleChannelSelect('wechat')}
               />
+              <ChannelCard
+                channel="unionpay"
+                active={selectedChannel === 'unionpay'}
+                onClick={() => handleChannelSelect('unionpay')}
+              />
             </div>
           </div>
 
-          {/* Pay Button */}
-          <Button
-            type="primary"
-            block
-            size="large"
-            disabled={!selectedChannel}
-            loading={activating}
+          {/* Pay button — Stripe orange */}
+          <button
+            disabled={!selectedChannel || activating || !!qrResult}
             onClick={handlePay}
-            style={{ height: 48, fontSize: 16, fontWeight: 600, borderRadius: 8 }}
+            style={{
+              ...s.payButton,
+              ...((!selectedChannel || !!qrResult) ? s.payButtonDisabled : {}),
+              ...(activating ? s.payButtonLoading : {}),
+            }}
           >
-            去支付
-          </Button>
+            {activating ? (
+              <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+                <Spin size="small" style={{ color: '#fff' }} />
+                处理中...
+              </span>
+            ) : qrResult ? (
+              `扫码支付中 · ¥${formatAmount(session.amount)}`
+            ) : (
+              `支付 ¥${formatAmount(session.amount)}`
+            )}
+          </button>
 
+          {/* Footer text */}
+          <p style={s.footerText}>
+            支付即表示您同意服务条款
+          </p>
         </div>
 
-        {/* ---- Right Column: Order Summary / QR Code ---- */}
+        {/* ====== Right Column: Order Summary ====== */}
         {!mobile && (
-          <div style={styles.right}>
-            <div style={styles.summaryCard}>
-              {/* Summary header */}
-              <div style={{
-                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                marginBottom: 20, paddingBottom: 16,
-                borderBottom: '1px solid #f0f0f0',
-              }}>
-                <span style={{ fontSize: 15, fontWeight: 600, color: '#333' }}>订单摘要</span>
-                <LockOutlined style={{ fontSize: 13, color: '#52c41a' }} />
+          <div style={s.right}>
+            <div style={s.summaryCard}>
+
+              {/* Summary header with lock */}
+              <div style={s.summaryHeader}>
+                <span style={s.summaryTitle}>订单摘要</span>
+                <div style={s.lockBadge}>
+                  <LockOutlined style={{ fontSize: 12, color: '#04d66f' }} />
+                </div>
+              </div>
+
+              {/* Merchant */}
+              <div style={s.summaryRow}>
+                <span style={s.summaryLabel}>商户</span>
+                <span style={s.summaryValue}>{merchantName}</span>
               </div>
 
               {/* Description */}
               {session.description && (
-                <div style={{ fontSize: 13, color: '#666', marginBottom: 16 }}>
-                  {session.description}
+                <div style={s.summaryRow}>
+                  <span style={s.summaryLabel}>商品</span>
+                  <span style={s.summaryValue}>{session.description}</span>
                 </div>
               )}
 
+              {/* Divider */}
+              <div style={s.summaryDivider} />
+
               {/* Total */}
-              <div style={{
-                display: 'flex', alignItems: 'baseline', justifyContent: 'space-between',
-                borderTop: '1px solid #f0f0f0', paddingTop: 16,
-              }}>
-                <span style={{ fontSize: 14, color: '#333', fontWeight: 500 }}>合计</span>
-                <span style={{ fontSize: 22, fontWeight: 700, color: '#333' }}>
+              <div style={s.summaryTotal}>
+                <span style={s.summaryLabel}>合计支付</span>
+                <span style={s.summaryAmount}>
                   {session.currency === 'CNY' ? '¥' : session.currency} {formatAmount(session.amount)}
                 </span>
               </div>
 
               {/* QR Code area — shown after activation */}
               {qrResult && (
-                <div style={{ marginTop: 24, textAlign: 'center' }}>
-                  <div style={{
-                    borderTop: '1px solid #f0f0f0', paddingTop: 20, marginBottom: 12,
-                  }}>
+                <div style={{ marginTop: 24 }}>
+                  <div style={s.summaryDivider} />
+
+                  <div style={{ textAlign: 'center', marginTop: 20 }}>
                     {/* Channel badge */}
                     <div style={{ marginBottom: 10 }}>
                       {activeChannel === 'wechat'
                         ? <WechatPayLogo height={24} />
+                        : activeChannel === 'unionpay'
+                        ? <UnionpayLogo height={28} />
                         : <AlipayLogo height={32} />
                       }
                     </div>
-                    <p style={{ margin: '0 0 4px', fontSize: 13, color: '#666' }}>扫一扫付款</p>
-                    <p style={{ margin: '0 0 16px', fontSize: 18, fontWeight: 700, color: '#333' }}>
-                      ¥ {formatAmount(session.amount)} 元
+                    <p style={s.qrLabel}>扫一扫付款</p>
+                    <p style={s.qrAmount}>
+                      ¥ {formatAmount(session.amount)}
                     </p>
-                  </div>
 
-                  <QRCodeSection
-                    qrCodeURL={qrResult.qr_code_url}
-                    paymentURL={qrResult.payment_url}
-                  />
+                    <QRCodeSection
+                      qrCodeURL={qrResult.qr_code_url}
+                      paymentURL={qrResult.payment_url}
+                    />
 
-                  <div style={{ marginTop: 12 }}>
-                    {session.expires_at && (
-                      <p style={{ margin: '0 0 4px', fontSize: 12, color: '#999' }}>
-                        二维码有效期 <CountdownTimer expiresAt={session.expires_at} inline />
-                      </p>
-                    )}
-                    <p style={{ margin: 0, fontSize: 12, color: '#999' }}>请尽快完成付款</p>
+                    <div style={{ marginTop: 14 }}>
+                      {session.expires_at && (
+                        <p style={{ margin: '0 0 4px', fontSize: 12, color: '#999' }}>
+                          二维码有效期 <CountdownTimer expiresAt={session.expires_at} inline />
+                        </p>
+                      )}
+                      <p style={{ margin: 0, fontSize: 12, color: '#999' }}>请尽快完成付款</p>
+                    </div>
                   </div>
                 </div>
               )}
@@ -310,12 +336,13 @@ export default function CheckoutPage() {
 
       {/* Footer branding */}
       {!embed && (
-        <p style={{ textAlign: 'center', fontSize: 12, color: '#bbb', marginTop: 24 }}>
+        <p style={s.brandFooter}>
+          <SafetyOutlined style={{ fontSize: 11, marginRight: 4, color: '#04d66f' }} />
           Powered by HydraPay
         </p>
       )}
 
-      {/* QR Code Modal — mobile only (desktop shows inline in right column) */}
+      {/* QR Code Modal — mobile only */}
       {mobile && (
         <Modal
           open={!!qrResult && !paid}
@@ -325,16 +352,18 @@ export default function CheckoutPage() {
           centered
           closable
         >
-          <div style={{ padding: '32px 24px', textAlign: 'center' }}>
-            <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'center' }}>
+          <div style={{ padding: '28px 20px', textAlign: 'center' }}>
+            <div style={{ marginBottom: 10, display: 'flex', justifyContent: 'center' }}>
               {activeChannel === 'wechat'
                 ? <WechatPayLogo height={28} />
+                : activeChannel === 'unionpay'
+                ? <UnionpayLogo height={36} />
                 : <AlipayLogo height={40} />
               }
             </div>
-            <p style={{ margin: '0 0 6px', fontSize: 13, color: '#666' }}>扫一扫付款</p>
-            <p style={{ margin: '0 0 18px', fontSize: 22, fontWeight: 700, color: '#333' }}>
-              ¥ {formatAmount(session.amount)} 元
+            <p style={s.qrLabel}>扫一扫付款</p>
+            <p style={s.qrAmount}>
+              ¥ {formatAmount(session.amount)}
             </p>
             <div style={{ marginBottom: 14 }}>
               <QRCodeSection
@@ -355,10 +384,10 @@ export default function CheckoutPage() {
   )
 }
 
-// StatusPage — friendly terminal-state page for expired/completed sessions.
+// --- StatusPage ---
 function StatusPage({ icon, title, subtitle, merchantName, cancelUrl, embed, onBack }) {
   return (
-    <div style={embed ? styles.pageEmbed : styles.page}>
+    <div style={embed ? s.pageEmbed : s.page}>
       <div style={{
         background: '#fff',
         borderRadius: 12,
@@ -369,34 +398,21 @@ function StatusPage({ icon, title, subtitle, merchantName, cancelUrl, embed, onB
         textAlign: 'center',
       }}>
         <div style={{ marginBottom: 16 }}>{icon}</div>
-        <h3 style={{ margin: '0 0 8px', fontSize: 18, color: '#333' }}>{title}</h3>
-        <p style={{ margin: '0 0 24px', fontSize: 14, color: '#999' }}>{subtitle}</p>
+        <h3 style={{ margin: '0 0 8px', fontSize: 18, fontWeight: 600, color: '#1a1a1a' }}>{title}</h3>
+        <p style={{ margin: '0 0 24px', fontSize: 14, color: '#6b6b6b' }}>{subtitle}</p>
         {embed && onBack ? (
-          <button
-            onClick={onBack}
-            style={{
-              display: 'inline-block', padding: '10px 32px',
-              background: '#1677ff', color: '#fff', borderRadius: 8,
-              fontSize: 14, fontWeight: 500, border: 'none', cursor: 'pointer',
-            }}
-          >
+          <button onClick={onBack} style={s.statusButton}>
             返回{merchantName || '商户'}
           </button>
         ) : cancelUrl ? (
-          <a
-            href={cancelUrl}
-            style={{
-              display: 'inline-block', padding: '10px 32px',
-              background: '#1677ff', color: '#fff', borderRadius: 8,
-              fontSize: 14, fontWeight: 500, textDecoration: 'none',
-            }}
-          >
+          <a href={cancelUrl} style={{ ...s.statusButton, textDecoration: 'none', display: 'inline-block' }}>
             返回{merchantName || '商户'}
           </a>
         ) : null}
       </div>
       {!embed && (
-        <p style={{ textAlign: 'center', fontSize: 12, color: '#bbb', marginTop: 24 }}>
+        <p style={s.brandFooter}>
+          <SafetyOutlined style={{ fontSize: 11, marginRight: 4, color: '#04d66f' }} />
           Powered by HydraPay
         </p>
       )}
@@ -404,10 +420,12 @@ function StatusPage({ icon, title, subtitle, merchantName, cancelUrl, embed, onB
   )
 }
 
-const styles = {
+// ====== Styles ======
+const s = {
+  // Page
   page: {
     minHeight: '100vh',
-    background: '#f0f2f5',
+    background: '#f7f7f7',
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
@@ -421,7 +439,9 @@ const styles = {
     justifyContent: 'center',
     padding: 0,
   },
-  container: {
+
+  // Main card — two-column layout
+  card: {
     display: 'flex',
     background: '#fff',
     borderRadius: 12,
@@ -429,32 +449,237 @@ const styles = {
     width: '100%',
     maxWidth: 780,
     overflow: 'hidden',
+    border: '1px solid #e6e6e6',
   },
-  containerEmbed: {
+  cardEmbed: {
     borderRadius: 0,
     boxShadow: 'none',
     maxWidth: '100%',
+    border: 'none',
   },
-  containerMobile: {
+  cardMobile: {
     flexDirection: 'column',
     maxWidth: 420,
   },
+
+  // Left column
   left: {
     flex: '1 1 55%',
-    padding: '40px 40px 40px 44px',
+    padding: '44px 40px 40px 48px',
   },
   leftMobile: {
-    padding: '32px 24px',
+    padding: '32px 28px',
   },
+
+  // Back link
+  backLink: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 4,
+    fontSize: 13,
+    color: '#6b6b6b',
+    textDecoration: 'none',
+    marginBottom: 20,
+    background: 'none',
+    border: 'none',
+    cursor: 'pointer',
+    padding: 0,
+  },
+
+  // Trust badge — Stripe green style
+  trustBadge: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 4,
+    fontSize: 12,
+    fontWeight: 500,
+    color: '#04d66f',
+    background: '#f0fdf6',
+    padding: '4px 10px',
+    borderRadius: 4,
+    marginBottom: 20,
+  },
+
+  // Merchant name
+  merchantName: {
+    fontSize: 22,
+    fontWeight: 600,
+    color: '#1a1a1a',
+    margin: '0 0 8px',
+    letterSpacing: '-0.3px',
+  },
+
+  // Description
+  description: {
+    fontSize: 14,
+    color: '#6b6b6b',
+    margin: '0 0 0 0',
+    lineHeight: 1.5,
+  },
+
+  // Section label
+  sectionLabel: {
+    fontSize: 13,
+    fontWeight: 500,
+    color: '#1a1a1a',
+    marginBottom: 12,
+  },
+
+  // Divider
+  divider: {
+    height: 1,
+    background: '#f0f0f0',
+    margin: '24px 0',
+  },
+
+  // Pay button — Stripe orange
+  payButton: {
+    width: '100%',
+    height: 48,
+    background: '#de481b',
+    color: '#fff',
+    border: 'none',
+    borderRadius: 6,
+    fontSize: 16,
+    fontWeight: 600,
+    cursor: 'pointer',
+    transition: 'all 0.15s ease',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  payButtonDisabled: {
+    background: '#e6e6e6',
+    color: '#999',
+    cursor: 'not-allowed',
+  },
+  payButtonLoading: {
+    opacity: 0.85,
+    cursor: 'wait',
+  },
+
+  // Footer text
+  footerText: {
+    textAlign: 'center',
+    color: '#bbb',
+    fontSize: 11,
+    marginTop: 16,
+    marginBottom: 0,
+  },
+
+  // Right column — order summary
   right: {
     flex: '0 0 45%',
     background: '#fafafa',
     borderLeft: '1px solid #f0f0f0',
     display: 'flex',
-    alignItems: 'center',
+    alignItems: 'flex-start',
   },
   summaryCard: {
-    padding: 36,
+    padding: 40,
     width: '100%',
+  },
+
+  // Summary header
+  summaryHeader: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 24,
+    paddingBottom: 16,
+    borderBottom: '1px solid #f0f0f0',
+  },
+  summaryTitle: {
+    fontSize: 15,
+    fontWeight: 600,
+    color: '#1a1a1a',
+  },
+  lockBadge: {
+    width: 28,
+    height: 28,
+    background: '#f0fdf6',
+    borderRadius: '50%',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  // Summary rows
+  summaryRow: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  summaryLabel: {
+    fontSize: 13,
+    color: '#6b6b6b',
+  },
+  summaryValue: {
+    fontSize: 13,
+    color: '#1a1a1a',
+    fontWeight: 500,
+    textAlign: 'right',
+    maxWidth: '60%',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+  },
+
+  // Summary divider
+  summaryDivider: {
+    height: 1,
+    background: '#f0f0f0',
+    margin: '4px 0 16px',
+  },
+
+  // Total
+  summaryTotal: {
+    display: 'flex',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
+  },
+  summaryAmount: {
+    fontSize: 22,
+    fontWeight: 700,
+    color: '#1a1a1a',
+    letterSpacing: '-0.3px',
+  },
+
+  // QR area
+  qrLabel: {
+    margin: '0 0 4px',
+    fontSize: 13,
+    color: '#6b6b6b',
+  },
+  qrAmount: {
+    margin: '0 0 16px',
+    fontSize: 20,
+    fontWeight: 700,
+    color: '#1a1a1a',
+  },
+
+  // Brand footer
+  brandFooter: {
+    textAlign: 'center',
+    fontSize: 12,
+    color: '#bbb',
+    marginTop: 24,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  // Status page button
+  statusButton: {
+    display: 'inline-block',
+    padding: '10px 32px',
+    background: '#de481b',
+    color: '#fff',
+    borderRadius: 6,
+    fontSize: 14,
+    fontWeight: 500,
+    border: 'none',
+    cursor: 'pointer',
   },
 }

@@ -5,9 +5,9 @@ import { ExportOutlined, SearchOutlined } from '@ant-design/icons'
 import { api, exportCSV as downloadCSV } from '../api/index.js'
 import OrderDetail from './OrderDetail.jsx'
 
-const statusLabel = { pending: '待支付', processing: '支付中', paid: '支付成功', failed: '支付失败', cancelled: '已取消', refunded: '已退款' }
-const statusColor = { pending: 'orange', processing: 'blue', paid: 'green', failed: 'red', cancelled: 'default', refunded: 'default' }
-const chLabel = { alipay: '支付宝', wechat: '微信' }
+const statusLabel = { pending: '待支付', processing: '支付中', paid: '支付成功', failed: '支付失败', create_failed: '创建失败', expired: '已过期', cancelled: '已取消', refunded: '已退款' }
+const statusColor = { pending: 'orange', processing: 'blue', paid: 'green', failed: 'red', create_failed: 'red', expired: 'default', cancelled: 'default', refunded: 'default' }
+const chLabel = { alipay: '支付宝', wechat: '微信', unionpay: '云闪付' }
 
 function remainingTime(createdAt, status) {
   if (status !== 'processing') return null
@@ -28,13 +28,15 @@ export default function Orders() {
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
   const [apps, setApps] = useState([])
+  const [merchants, setMerchants] = useState([])
   const [status, setStatus] = useState('')
   const [channel, setChannel] = useState('')
   const [appId, setAppId] = useState('')
+  const [merchantId, setMerchantId] = useState('')
   const [tradeNo, setTradeNo] = useState('')
   const sizeFromUrl = parseInt(searchParams.get('page_size')) || 10
 
-  useEffect(() => { api.listApps().then(setApps) }, [])
+  useEffect(() => { Promise.all([api.listApps(), api.listMerchants()]).then(([a, m]) => { setApps(a); setMerchants(m) }).catch(err => { console.error('Failed to load data:', err); setApps([]); setMerchants([]) }) }, [])
   const [page, setPage] = useState(pageFromUrl)
   const [pageSize, setPageSize] = useState(sizeFromUrl)
 
@@ -44,6 +46,7 @@ export default function Orders() {
     if (status) params.set('status', status)
     if (channel) params.set('channel', channel)
     if (appId) params.set('app_id', appId)
+    if (merchantId) params.set('merchant_id', merchantId)
     if (tradeNo) params.set('trade_no', tradeNo)
     params.set('page', page)
     params.set('page_size', pageSize)
@@ -51,7 +54,7 @@ export default function Orders() {
     setOrders(d.orders || [])
     setTotal(d.total || 0)
     setLoading(false)
-  }, [status, channel, appId, tradeNo, page, pageSize])
+  }, [status, channel, appId, merchantId, tradeNo, page, pageSize])
 
   const [, setTick] = useState(0)
   useEffect(() => {
@@ -64,12 +67,13 @@ export default function Orders() {
     if (status) sp.set('status', status)
     if (channel) sp.set('channel', channel)
     if (appId) sp.set('app_id', appId)
+    if (merchantId) sp.set('merchant_id', merchantId)
     if (tradeNo) sp.set('trade_no', tradeNo)
     if (page > 1) sp.set('page', page)
     if (pageSize !== 10) sp.set('page_size', pageSize)
     setSearchParams(sp, { replace: true })
     load()
-  }, [status, channel, appId, tradeNo, page, pageSize])
+  }, [status, channel, appId, merchantId, tradeNo, page, pageSize])
 
   function handleSearch() {
     setPage(1)
@@ -81,8 +85,14 @@ export default function Orders() {
     if (status) params.set('status', status)
     if (channel) params.set('channel', channel)
     if (appId) params.set('app_id', appId)
+    if (merchantId) params.set('merchant_id', merchantId)
     downloadCSV(params.toString())
   }
+
+  const appMap = {}
+  apps.forEach(a => { appMap[a.id] = a })
+  const merchantMap = {}
+  merchants.forEach(m => { merchantMap[m.id] = m.name })
 
   const columns = [
     {
@@ -90,8 +100,12 @@ export default function Orders() {
       render: v => <code style={{ fontSize: 12 }}>{v}</code>,
     },
     {
+      title: '商户', dataIndex: 'AppID', width: 140,
+      render: v => merchantMap[appMap[v]?.merchant_id] || '—',
+    },
+    {
       title: '应用', dataIndex: 'AppID', width: 120,
-      render: v => (apps.find(a => a.ID === v) || {}).Name || v?.slice(0,8) || '—',
+      render: v => appMap[v]?.name || v?.slice(0, 8) || '—',
     },
     {
       title: '渠道', dataIndex: 'Channel', width: 80,
@@ -104,10 +118,6 @@ export default function Orders() {
     {
       title: '状态', dataIndex: 'Status', width: 150,
       render: v => <Tag color={statusColor[v] || 'default'}>{statusLabel[v] || v}({v})</Tag>,
-    },
-    {
-      title: '渠道交易号', dataIndex: 'ExternalID', width: 180,
-      render: v => v ? <code style={{ fontSize: 12, color: '#64748b' }} title={v}>{v.slice(0, 20)}...</code> : <span style={{ color: '#94a3b8' }}>—</span>,
     },
     {
       title: '剩余', dataIndex: 'CreatedAt', width: 70,
@@ -135,6 +145,25 @@ export default function Orders() {
       <div style={{ marginBottom: 16 }}>
         <Space wrap>
           <Select
+            placeholder="全部商户" style={{ width: 160 }} allowClear value={merchantId || undefined}
+            onChange={v => { setPage(1); setAppId(''); setMerchantId(v || '') }}
+            options={merchants.filter(m => m.status === 'active').map(m => ({ value: m.id, label: m.name }))}
+          />
+          <Select
+            placeholder="全部应用" style={{ width: 160 }} allowClear value={appId || undefined}
+            onChange={v => { setPage(1); setAppId(v || '') }}
+            options={apps.map(a => ({ value: a.id, label: a.name }))}
+          />
+          <Select
+            placeholder="全部渠道" style={{ width: 120 }} allowClear value={channel || undefined}
+            onChange={v => { setPage(1); setChannel(v || '') }}
+            options={[
+              { value: 'alipay', label: '支付宝' },
+              { value: 'wechat', label: '微信' },
+              { value: 'unionpay', label: '云闪付' },
+            ]}
+          />
+          <Select
             placeholder="全部状态" style={{ width: 120 }} allowClear value={status || undefined}
             onChange={v => { setPage(1); setStatus(v || '') }}
             options={[
@@ -143,19 +172,6 @@ export default function Orders() {
               { value: 'paid', label: '已支付' },
               { value: 'failed', label: '失败' },
             ]}
-          />
-          <Select
-            placeholder="全部渠道" style={{ width: 120 }} allowClear value={channel || undefined}
-            onChange={v => { setPage(1); setChannel(v || '') }}
-            options={[
-              { value: 'alipay', label: '支付宝' },
-              { value: 'wechat', label: '微信' },
-            ]}
-          />
-          <Select
-            placeholder="全部应用" style={{ width: 160 }} allowClear value={appId || undefined}
-            onChange={v => { setPage(1); setAppId(v || '') }}
-            options={apps.map(a => ({ value: a.ID, label: a.Name }))}
           />
           <Input.Search
             placeholder="搜索订单 ID …"

@@ -35,15 +35,33 @@ func SyncExpiredOrders(db *gorm.DB, getAdapter func(string) (channel.Adapter, er
 			continue
 		}
 
-		// Already in terminal state — no action needed
-		if payment.Status != model.PaymentStatusProcessing {
+		// Non-terminal states only: pending & processing
+		if payment.Status != model.PaymentStatusPending && payment.Status != model.PaymentStatusProcessing {
 			taskRepo.MarkDone(task.ID)
 			continue
 		}
 
+		// Payment never activated — mark as expired
+		if payment.Status == model.PaymentStatusPending {
+			logger.Info(ctx, "pending payment timed out", "trade_no", payment.TradeNo)
+			paymentRepo.UpdateStatus(payment.ID, model.PaymentStatusExpired, "")
+			repository.RecordEvent(db, model.EventStatusChanged, payment.Channel,
+				payment.ID, "",
+				map[string]interface{}{"from": model.PaymentStatusPending, "to": model.PaymentStatusExpired, "source": "sync", "reason": "timeout"}, "")
+			taskRepo.MarkDone(task.ID)
+			continue
+		}
+
+		// Payment is processing — query channel for real status
 		adapter, err := getAdapter(payment.Channel)
 		if err != nil {
-			logger.Error(ctx, "skip task", "trade_no", payment.TradeNo, "error", err)
+			// Channel not configured — expire the order
+			logger.Info(ctx, "channel unavailable, expiring order", "trade_no", payment.TradeNo)
+			paymentRepo.UpdateStatus(payment.ID, model.PaymentStatusExpired, payment.ExternalID)
+			repository.RecordEvent(db, model.EventStatusChanged, payment.Channel,
+				payment.ID, "",
+				map[string]interface{}{"from": model.PaymentStatusProcessing, "to": model.PaymentStatusExpired, "source": "sync", "reason": "channel_unavailable"}, "")
+			taskRepo.MarkDone(task.ID)
 			continue
 		}
 
@@ -54,21 +72,23 @@ func SyncExpiredOrders(db *gorm.DB, getAdapter func(string) (channel.Adapter, er
 
 		status, err := adapter.GetPaymentStatus(ctx, queryID)
 		if err != nil {
-			logger.Error(ctx, "query failed", "trade_no", payment.TradeNo, "error", err)
-					taskRepo.MarkDone(task.ID)
+			// Query error — expire the order
+			logger.Info(ctx, "channel query failed, expiring order", "trade_no", payment.TradeNo, "error", err)
+			paymentRepo.UpdateStatus(payment.ID, model.PaymentStatusExpired, payment.ExternalID)
+			repository.RecordEvent(db, model.EventStatusChanged, payment.Channel,
+				payment.ID, "",
+				map[string]interface{}{"from": model.PaymentStatusProcessing, "to": model.PaymentStatusExpired, "source": "sync", "reason": "query_error"}, "")
+			taskRepo.MarkDone(task.ID)
 			continue
 		}
 
 		switch status {
 		case model.PaymentStatusFailed:
-			if err := paymentRepo.UpdateStatus(payment.ID, model.PaymentStatusFailed, payment.ExternalID); err != nil {
-				logger.Error(ctx, "update to failed", "trade_no", payment.TradeNo, "error", err)
-			}
+			paymentRepo.UpdateStatus(payment.ID, model.PaymentStatusFailed, payment.ExternalID)
 			repository.RecordEvent(db, model.EventStatusChanged, payment.Channel,
 				payment.ID, "",
 				map[string]interface{}{"from": model.PaymentStatusProcessing, "to": model.PaymentStatusFailed, "source": "sync"}, "")
 			logger.Info(ctx, "order closed → failed", "trade_no", payment.TradeNo)
-			taskRepo.MarkDone(task.ID)
 
 		case model.PaymentStatusPaid:
 			applied, err := paymentRepo.MarkPaidIfPending(payment.ID, payment.ExternalID)
@@ -81,10 +101,15 @@ func SyncExpiredOrders(db *gorm.DB, getAdapter func(string) (channel.Adapter, er
 					map[string]interface{}{"from": model.PaymentStatusProcessing, "to": model.PaymentStatusPaid, "source": "sync"}, "")
 				logger.Info(ctx, "order paid (late catch)", "trade_no", payment.TradeNo)
 			}
-			taskRepo.MarkDone(task.ID)
 
 		default:
-			// still pending — leave task as-is for next tick
+			// Still pending per channel beyond timeout — expire
+			logger.Info(ctx, "order still pending after timeout, expiring", "trade_no", payment.TradeNo, "channel_status", status)
+			paymentRepo.UpdateStatus(payment.ID, model.PaymentStatusExpired, payment.ExternalID)
+			repository.RecordEvent(db, model.EventStatusChanged, payment.Channel,
+				payment.ID, "",
+				map[string]interface{}{"from": model.PaymentStatusProcessing, "to": model.PaymentStatusExpired, "source": "sync", "reason": "timeout"}, "")
 		}
+		taskRepo.MarkDone(task.ID)
 	}
 }

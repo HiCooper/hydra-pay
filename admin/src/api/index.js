@@ -1,9 +1,10 @@
-export const SERVER = import.meta.env.VITE_SERVER_BASE || 'http://localhost:8082'
+export const SERVER = import.meta.env.VITE_SERVER_BASE || ''
 const BASE = SERVER + '/api/admin'
 const H = { 'X-Admin-Key': 'admin-dev-key', 'Content-Type': 'application/json' }
 
 async function request(path) {
   const res = await fetch(BASE + path, { headers: H })
+  if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`)
   const json = await res.json()
   if (!json.success) throw new Error(json.error?.message || 'Request failed')
   return json.data
@@ -25,7 +26,10 @@ export const api = {
   config: () => request('/config'),
 
   // Merchants
-  listMerchants: () => request('/merchants'),
+  listMerchants: (params = '') => {
+    const path = '/merchants' + (params ? '?' + params : '')
+    return request(path)
+  },
   createMerchant: (body) => fetch(BASE + '/merchants', { method: 'POST', headers: H, body: JSON.stringify(body) }).then(r => r.json()).then(j => { if (!j.success) throw new Error(j.error?.message); return j.data }),
   getMerchant: (id) => request('/merchants/' + id),
   updateMerchant: (id, body) => fetch(BASE + '/merchants/' + id, { method: 'PUT', headers: H, body: JSON.stringify(body) }).then(r => r.json()).then(j => { if (!j.success) throw new Error(j.error?.message); return j.data }),
@@ -40,4 +44,13 @@ export const api = {
   listOrders: (params = '') => fetch(BASE + '/orders?' + params, { headers: H }).then(r => r.json()).then(j => j.data),
   getOrder: (id) => request('/orders/' + id),
   listEvents: (paymentId) => request('/events?payment_id=' + paymentId),
+
+  // Payment Channels
+  listChannels: () => request('/channels'),
+  updateChannel: (id, body) => fetch(BASE + '/channels/' + id, { method: 'PUT', headers: H, body: JSON.stringify(body) }).then(r => r.json()).then(j => { if (!j.success) throw new Error(j.error?.message); return j.data }),
+
+  // Merchant App Channels
+  listMerchantAppChannels: (merchantId) => request('/merchants/' + merchantId + '/app-channels'),
+  createAppChannel: (body) => fetch(BASE + '/app-channels', { method: 'POST', headers: H, body: JSON.stringify(body) }).then(r => r.json()).then(j => { if (!j.success) throw new Error(j.error?.message); return j.data }),
+  updateAppChannel: (id, body) => fetch(BASE + '/app-channels/' + id, { method: 'PUT', headers: H, body: JSON.stringify(body) }).then(r => r.json()).then(j => { if (!j.success) throw new Error(j.error?.message); return j.data }),
 }

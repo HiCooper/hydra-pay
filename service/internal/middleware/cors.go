@@ -23,11 +23,16 @@ func CORS(allowedOrigins string) gin.HandlerFunc {
 				break
 			}
 		}
+		// Allow any localhost / 127.0.0.1 origin in dev (Vite may pick any port)
+		if allowOrigin == "" && (strings.HasPrefix(origin, "http://localhost:") || strings.HasPrefix(origin, "http://127.0.0.1:")) {
+			allowOrigin = origin
+		}
 
 		if allowOrigin != "" {
 			c.Header("Access-Control-Allow-Origin", allowOrigin)
-			c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-			c.Header("Access-Control-Allow-Headers", "Content-Type, X-Admin-Key, X-API-Key")
+			c.Header("Access-Control-Allow-Credentials", "true")
+			c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, PATCH, OPTIONS")
+			c.Header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Admin-Key, X-API-Key")
 			c.Header("Access-Control-Max-Age", "86400")
 		}
 

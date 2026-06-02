@@ -36,6 +36,12 @@ func Connect(cfg *config.Config) (*gorm.DB, error) {
 	if err := db.AutoMigrate(&model.WechatPayCallback{}); err != nil {
 		return nil, err
 	}
+	if err := db.AutoMigrate(&model.UnionpayCallback{}); err != nil {
+		return nil, err
+	}
+	if err := db.AutoMigrate(&model.EcnyCallback{}); err != nil {
+		return nil, err
+	}
 	if err := db.AutoMigrate(&model.Refund{}); err != nil {
 		return nil, err
 	}
@@ -60,6 +66,12 @@ func Connect(cfg *config.Config) (*gorm.DB, error) {
 	if err := db.AutoMigrate(&model.Merchant{}); err != nil {
 		return nil, err
 	}
+	if err := db.AutoMigrate(&model.PaymentChannel{}); err != nil {
+		return nil, err
+	}
+	if err := db.AutoMigrate(&model.MerchantAppChannel{}); err != nil {
+		return nil, err
+	}
 
 	sqlDB, err := db.DB()
 	if err != nil {
@@ -80,5 +92,20 @@ func Connect(cfg *config.Config) (*gorm.DB, error) {
 		"max_open_conns", cfg.Database.MaxOpenConns,
 		"max_idle_conns", cfg.Database.MaxIdleConns,
 	)
+
+	seedPaymentChannels(db)
+
 	return db, nil
+}
+
+func seedPaymentChannels(db *gorm.DB) {
+	channels := []model.PaymentChannel{
+		{Key: "alipay", Code: "00", Label: "支付宝", SupportsOnboarding: true, SortOrder: 1, Enabled: true},
+		{Key: "wechat", Code: "01", Label: "微信支付", SupportsOnboarding: true, SortOrder: 2, Enabled: true},
+		{Key: "unionpay", Code: "03", Label: "云闪付", SupportsOnboarding: false, SortOrder: 3, Enabled: true},
+		{Key: "ecny", Code: "04", Label: "数字人民币", SupportsOnboarding: false, SortOrder: 4, Enabled: true},
+	}
+	for _, ch := range channels {
+		db.Where("key = ?", ch.Key).FirstOrCreate(&ch)
+	}
 }

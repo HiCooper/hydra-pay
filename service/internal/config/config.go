@@ -16,6 +16,8 @@ type Config struct {
 	Wall     WallConfig
 	Alipay   AlipayConfig
 	Wechat   WechatConfig
+	Unionpay UnionpayConfig
+	Ecny     EcnyConfig
 }
 
 type ServerConfig struct {
@@ -67,6 +69,35 @@ type WechatConfig struct {
 	OnboardingNotifyURL string
 }
 
+type UnionpayConfig struct {
+	AppID               string
+	Secret              string
+	MchID               string
+	PrivateKey          string
+	PrivateKeyPath      string
+	UnionpayPublicKey   string
+	UnionpayPublicKeyPath string
+	NotifyURL           string
+	ReturnURL           string
+	IsSandbox           bool
+	OnboardingNotifyURL string
+}
+
+type EcnyConfig struct {
+	AppID               string
+	MchID               string
+	PrivateKey          string   // SM2 private key PEM (inline or via path)
+	PrivateKeyPath      string
+	AgencyPublicKey     string   // agency SM2 public key PEM (for callback verification)
+	AgencyPublicKeyPath string
+	CertContent         string   // SM2 certificate PEM (if required by agency)
+	CertPath            string
+	NotifyURL           string
+	ReturnURL           string
+	IsSandbox           bool
+	AgencyAPIBaseURL    string   // override default agency base URL
+}
+
 func Load() *Config {
 	return &Config{
 		Server: ServerConfig{
@@ -113,6 +144,33 @@ func Load() *Config {
 			IsSandbox:           getEnv("WECHAT_SANDBOX", "false") == "true",
 			OnboardingNotifyURL: getEnv("WECHAT_ONBOARDING_NOTIFY_URL", ""),
 		},
+		Unionpay: UnionpayConfig{
+			AppID:                 getEnv("UNIONPAY_APP_ID", ""),
+			Secret:                getEnv("UNIONPAY_SECRET", ""),
+			MchID:                 getEnv("UNIONPAY_MCH_ID", ""),
+			PrivateKey:            resolveKey("UNIONPAY_PRIVATE_KEY", "UNIONPAY_PRIVATE_KEY_PATH"),
+			PrivateKeyPath:        getEnv("UNIONPAY_PRIVATE_KEY_PATH", ""),
+			UnionpayPublicKey:     resolveKey("UNIONPAY_UNIONPAY_PUBLIC_KEY", "UNIONPAY_UNIONPAY_PUBLIC_KEY_PATH"),
+			UnionpayPublicKeyPath: getEnv("UNIONPAY_UNIONPAY_PUBLIC_KEY_PATH", ""),
+			NotifyURL:             getEnv("UNIONPAY_NOTIFY_URL", ""),
+			ReturnURL:             getEnv("UNIONPAY_RETURN_URL", ""),
+			IsSandbox:             getEnv("UNIONPAY_SANDBOX", "false") == "true",
+			OnboardingNotifyURL:   getEnv("UNIONPAY_ONBOARDING_NOTIFY_URL", ""),
+		},
+		Ecny: EcnyConfig{
+			AppID:               getEnv("ECNY_APP_ID", ""),
+			MchID:               getEnv("ECNY_MCH_ID", ""),
+			PrivateKey:          resolveKey("ECNY_PRIVATE_KEY", "ECNY_PRIVATE_KEY_PATH"),
+			PrivateKeyPath:      getEnv("ECNY_PRIVATE_KEY_PATH", ""),
+			AgencyPublicKey:     resolveKey("ECNY_AGENCY_PUBLIC_KEY", "ECNY_AGENCY_PUBLIC_KEY_PATH"),
+			AgencyPublicKeyPath: getEnv("ECNY_AGENCY_PUBLIC_KEY_PATH", ""),
+			CertContent:         resolveKey("ECNY_CERT_CONTENT", "ECNY_CERT_PATH"),
+			CertPath:            getEnv("ECNY_CERT_PATH", ""),
+			NotifyURL:           getEnv("ECNY_NOTIFY_URL", ""),
+			ReturnURL:           getEnv("ECNY_RETURN_URL", ""),
+			IsSandbox:           getEnv("ECNY_SANDBOX", "false") == "true",
+			AgencyAPIBaseURL:    getEnv("ECNY_AGENCY_API_BASE_URL", ""),
+		},
 	}
 }
 
@@ -134,6 +192,12 @@ func (c *Config) Validate() error {
 	}
 	if c.Wechat.MchID != "" && c.Wechat.APIv3Key == "" {
 		issues = append(issues, "WECHAT_MCH_ID is set but WECHAT_API_V3_KEY is missing")
+	}
+	if c.Unionpay.AppID != "" && c.Unionpay.Secret == "" {
+		issues = append(issues, "UNIONPAY_APP_ID is set but UNIONPAY_SECRET is missing")
+	}
+	if c.Ecny.AppID != "" && c.Ecny.PrivateKey == "" {
+		issues = append(issues, "ECNY_APP_ID is set but ECNY_PRIVATE_KEY is missing")
 	}
 
 	if len(issues) > 0 {

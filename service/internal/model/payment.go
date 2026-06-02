@@ -9,16 +9,20 @@ import (
 )
 
 const (
-	PaymentStatusPending    = "pending"
-	PaymentStatusProcessing = "processing"
-	PaymentStatusPaid       = "paid"
-	PaymentStatusFailed     = "failed"
-	PaymentStatusCancelled  = "cancelled"
-	PaymentStatusRefunded   = "refunded"
+	PaymentStatusPending      = "pending"
+	PaymentStatusProcessing   = "processing"
+	PaymentStatusPaid         = "paid"
+	PaymentStatusFailed       = "failed"
+	PaymentStatusCreateFailed = "create_failed"
+	PaymentStatusExpired      = "expired"
+	PaymentStatusCancelled    = "cancelled"
+	PaymentStatusRefunded     = "refunded"
 
-	ChannelAlipay = "alipay"
-	ChannelWechat = "wechat"
-	ChannelStripe = "stripe"
+	ChannelAlipay   = "alipay"
+	ChannelWechat   = "wechat"
+	ChannelStripe   = "stripe"
+	ChannelUnionpay = "unionpay"
+	ChannelEcny     = "ecny"
 )
 
 // Payment represents a payment order.

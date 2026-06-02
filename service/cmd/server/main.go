@@ -14,6 +14,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/hydra/pay-service/internal/channel"
 	"github.com/hydra/pay-service/internal/channel/alipay"
+	"github.com/hydra/pay-service/internal/channel/ecny"
+	"github.com/hydra/pay-service/internal/channel/unionpay"
 	"github.com/hydra/pay-service/internal/channel/wechat"
 	"github.com/hydra/pay-service/internal/config"
 	"github.com/hydra/pay-service/internal/database"
@@ -124,6 +126,10 @@ func runOrderSync(db *gorm.DB, cfg *config.Config) {
 			return alipay.NewAdapter(&cfg.Alipay)
 		case model.ChannelWechat:
 			return wechat.NewAdapter(&cfg.Wechat)
+		case model.ChannelUnionpay:
+			return unionpay.NewAdapter(&cfg.Unionpay)
+		case model.ChannelEcny:
+			return ecny.NewAdapter(&cfg.Ecny)
 		default:
 			return nil, fmt.Errorf("unsupported channel: %s", ch)
 		}

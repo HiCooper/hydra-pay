@@ -137,6 +137,15 @@ func Setup(cfg *config.Config, db *gorm.DB) *gin.Engine {
 		admAPI.POST("/tools/test-webhook", adminHandler.TestWebhook)
 		admAPI.POST("/tools/test-refund", adminHandler.TestRefund)
 		admAPI.GET("/tools/connectivity", adminHandler.ConnectivityCheck)
+
+		// Payment Channels
+		admAPI.GET("/channels", adminHandler.ListChannels)
+		admAPI.PUT("/channels/:id", adminHandler.UpdateChannel)
+
+		// Merchant App Channels
+		admAPI.GET("/merchants/:id/app-channels", adminHandler.ListMerchantAppChannels)
+		admAPI.POST("/app-channels", adminHandler.CreateMerchantAppChannel)
+		admAPI.PUT("/app-channels/:id", adminHandler.UpdateMerchantAppChannel)
 	}
 
 	// Developer Portal API
@@ -163,6 +172,7 @@ func Setup(cfg *config.Config, db *gorm.DB) *gin.Engine {
 		portalAPI.GET("/subscriptions", portalHandler.ListSubscriptions)
 		portalAPI.GET("/apps", portalHandler.ListApps)
 		portalAPI.POST("/apps", portalHandler.CreateApp)
+		portalAPI.GET("/channels", portalHandler.ListChannels)
 		portalAPI.POST("/onboarding", portalHandler.InitiateOnboarding)
 		portalAPI.GET("/onboarding", portalHandler.GetOnboardingStatus)
 	}
@@ -183,6 +193,7 @@ func Setup(cfg *config.Config, db *gorm.DB) *gin.Engine {
 	r.StaticFile("/pay/favicon.svg", "../pay-frontend/dist/favicon.svg")
 	r.StaticFile("/pay/alipay_logo.svg", "../pay-frontend/dist/alipay_logo.svg")
 	r.StaticFile("/pay/wechat_pay_logo.svg", "../pay-frontend/dist/wechat_pay_logo.svg")
+	r.StaticFile("/pay/unionpay_logo.svg", "../pay-frontend/dist/unionpay_logo.svg")
 
 		// SDK and embed assets
 		r.StaticFS("/sdk", http.Dir("../pay-frontend/public"))

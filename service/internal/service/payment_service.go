@@ -14,6 +14,8 @@ import (
 
 	"github.com/hydra/pay-service/internal/channel"
 	"github.com/hydra/pay-service/internal/channel/alipay"
+	"github.com/hydra/pay-service/internal/channel/ecny"
+	"github.com/hydra/pay-service/internal/channel/unionpay"
 	"github.com/hydra/pay-service/internal/channel/wechat"
 	"github.com/hydra/pay-service/internal/config"
 	"github.com/hydra/pay-service/internal/model"
@@ -200,6 +202,10 @@ func GetAdapter(name string, cfg *config.Config) (channel.Adapter, error) {
 		return alipay.NewAdapter(&cfg.Alipay)
 	case model.ChannelWechat:
 		return wechat.NewAdapter(&cfg.Wechat)
+	case model.ChannelUnionpay:
+		return unionpay.NewAdapter(&cfg.Unionpay)
+	case model.ChannelEcny:
+		return ecny.NewAdapter(&cfg.Ecny)
 	default:
 		return nil, fmt.Errorf("unsupported channel: %s", name)
 	}
@@ -219,7 +225,12 @@ func (s *PaymentService) CreatePayment(ctx context.Context, input *CreatePayment
 		meta = datatypes.JSON(marshalOrEmpty(input.Metadata))
 	}
 
-	tradeNo := tradeno.Generate(input.ChannelName)
+	code := "99"
+	var pc model.PaymentChannel
+	if err := s.db.Where("key = ?", input.ChannelName).First(&pc).Error; err == nil && pc.Code != "" {
+		code = pc.Code
+	}
+	tradeNo := tradeno.Generate(code)
 
 	payment := &model.Payment{
 		TradeNo:     tradeNo,
@@ -257,7 +268,7 @@ func (s *PaymentService) CreatePayment(ctx context.Context, input *CreatePayment
 	if input.ChannelName != "" {
 		result, err := s.ActivateChannel(ctx, payment, input)
 		if err != nil {
-			s.repo.UpdateStatus(payment.ID, model.PaymentStatusFailed, "")
+			s.repo.UpdateStatus(payment.ID, model.PaymentStatusCreateFailed, "")
 			repository.RecordEvent(s.db, model.EventChannelRequest, input.ChannelName,
 				payment.ID, "", nil, err.Error())
 			return nil, err
@@ -391,6 +402,10 @@ func (s *PaymentService) HandleCallback(ctx context.Context, channelName string,
 			return result, nil
 		}
 		payment.Status = model.PaymentStatusPaid
+		// Complete linked checkout session now that payment is confirmed
+		s.db.Model(&model.CheckoutSession{}).
+			Where("payment_id = ? AND status = ?", payment.ID, model.CheckoutSessionOpen).
+			Update("status", model.CheckoutSessionCompleted)
 	case model.PaymentStatusFailed:
 		if err := s.repo.UpdateStatus(payment.ID, model.PaymentStatusFailed, result.ChannelTxID); err != nil {
 			return nil, err
@@ -620,6 +635,16 @@ func checkDedup(db *gorm.DB, result *channel.CallbackResult) bool {
 		db.Model(&model.WechatPayCallback{}).Where("notification_id = ?", result.WechatPayCallback.NotificationID).Count(&count)
 		return count > 0
 	}
+	if result.UnionpayCallback != nil && result.UnionpayCallback.QueryID != "" {
+		var count int64
+		db.Model(&model.UnionpayCallback{}).Where("query_id = ?", result.UnionpayCallback.QueryID).Count(&count)
+		return count > 0
+	}
+	if result.EcnyCallback != nil && result.EcnyCallback.ChannelTxID != "" {
+		var count int64
+		db.Model(&model.EcnyCallback{}).Where("channel_tx_id = ?", result.EcnyCallback.ChannelTxID).Count(&count)
+		return count > 0
+	}
 	return false
 }
 
@@ -635,6 +660,18 @@ func saveCallback(db *gorm.DB, paymentID uuid.UUID, result *channel.CallbackResu
 		result.WechatPayCallback.PaymentID = paymentID
 		if err := db.Create(result.WechatPayCallback).Error; err != nil {
 			logger.Error(context.Background(), "failed to save wechat callback", "error", err)
+		}
+	}
+	if result.UnionpayCallback != nil {
+		result.UnionpayCallback.PaymentID = paymentID
+		if err := db.Create(result.UnionpayCallback).Error; err != nil {
+			logger.Error(context.Background(), "failed to save unionpay callback", "error", err)
+		}
+	}
+	if result.EcnyCallback != nil {
+		result.EcnyCallback.PaymentID = paymentID
+		if err := db.Create(result.EcnyCallback).Error; err != nil {
+			logger.Error(context.Background(), "failed to save ecny callback", "error", err)
 		}
 	}
 }

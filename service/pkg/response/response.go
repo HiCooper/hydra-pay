@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"github.com/hydra/pay-service/pkg/logger"
 )
 
 type Response struct {
@@ -42,7 +43,11 @@ func SuccessWithPagination(c *gin.Context, data interface{}, page, pageSize, tot
 	})
 }
 
+// Error responds with an error and stores the error details in the Gin context
+// so the access-log middleware can emit them for observability.
 func Error(c *gin.Context, statusCode int, code, message string) {
+	c.Set(logger.CtxErrorCode, code)
+	c.Set(logger.CtxErrorMessage, message)
 	c.JSON(statusCode, Response{
 		Success: false,
 		Error:   &ErrorObj{Code: code, Message: message},

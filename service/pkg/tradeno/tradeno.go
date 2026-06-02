@@ -7,32 +7,20 @@ import (
 	"time"
 )
 
-var channelCodes = map[string]string{
-	"alipay": "00",
-	"wechat": "01",
-	"stripe": "02",
-}
-
-func Generate(channel string) string {
+// Generate creates a trade number from a channel code (from payment_channels.code).
+// Format: YYYYMMDD + code + HHMMSS + 6-random-digits
+func Generate(code string) string {
 	now := time.Now()
 	date := now.Format("20060102")
 	timePart := now.Format("150405")
 
-	code, ok := channelCodes[channel]
-	if !ok {
+	if code == "" {
 		code = "99"
 	}
 
 	randomPart := randomDigits(6)
 
 	return fmt.Sprintf("%s%s%s%s", date, code, timePart, randomPart)
-}
-
-func ChannelCode(channel string) string {
-	if code, ok := channelCodes[channel]; ok {
-		return code
-	}
-	return "99"
 }
 
 func randomDigits(n int) string {

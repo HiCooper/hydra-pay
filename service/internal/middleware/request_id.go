@@ -6,10 +6,11 @@ import (
 	"github.com/hydra/pay-service/pkg/logger"
 )
 
-const ContextRequestID = "request_id"
+const ContextRequestID = logger.CtxRequestID
 
 // RequestID reads or generates an X-Request-ID header, stores it in both
-// gin context and request context, and sets the response header.
+// gin context (for middleware access) and request context (for log correlation),
+// and echoes it in the X-Request-ID response header.
 func RequestID() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id := c.GetHeader("X-Request-ID")

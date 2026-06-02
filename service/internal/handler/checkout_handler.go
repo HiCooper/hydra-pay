@@ -87,16 +87,21 @@ func (h *CheckoutHandler) ActivatePayment(c *gin.Context) {
 	}
 
 	var req struct {
-		Channel string `json:"channel"`
-		UserID  string `json:"user_id"`
+		Channel   string `json:"channel"`
+		UserID    string `json:"user_id"`
+		TradeType string `json:"trade_type"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.Error(c, http.StatusBadRequest, errors.ValidationError, "invalid request body")
 		return
 	}
-	if req.Channel != model.ChannelAlipay && req.Channel != model.ChannelWechat {
-		response.Error(c, http.StatusBadRequest, errors.ValidationError, "channel must be alipay or wechat")
+	if req.Channel != model.ChannelAlipay && req.Channel != model.ChannelWechat && req.Channel != model.ChannelUnionpay {
+		response.Error(c, http.StatusBadRequest, errors.ValidationError, "unsupported channel: "+req.Channel)
 		return
+	}
+	// 云闪付默认走 H5（沙箱网关对 H5 支持最好）
+	if req.Channel == model.ChannelUnionpay && req.TradeType == "" {
+		req.TradeType = "h5"
 	}
 
 	session, err := h.sessionRepo.GetByID(id)
@@ -122,6 +127,7 @@ func (h *CheckoutHandler) ActivatePayment(c *gin.Context) {
 		Amount:      session.Amount,
 		Currency:    session.Currency,
 		ChannelName: req.Channel,
+		TradeType:   req.TradeType,
 		Description: session.Description,
 		SuccessURL:  session.SuccessURL,
 		CancelURL:   session.CancelURL,
@@ -131,8 +137,8 @@ func (h *CheckoutHandler) ActivatePayment(c *gin.Context) {
 		return
 	}
 
-	// Link session to payment
-	h.sessionRepo.MarkCompleted(session.ID, result.Payment.ID)
+	// Link session to payment — stay "open" until callback confirms payment
+	h.sessionRepo.LinkPayment(session.ID, result.Payment.ID)
 
 	response.Success(c, gin.H{
 		"payment_id":  result.Payment.ID.String(),

@@ -15,11 +15,25 @@ function apiKeyHeaders() {
   }
 }
 
+class AuthError extends Error {
+  constructor(message) { super(message); this.name = 'AuthError' }
+}
+
 async function request(path) {
-  const res = await fetch(BASE + path, { headers: headers() })
+  let res
+  try {
+    res = await fetch(BASE + path, { headers: headers() })
+  } catch (e) {
+    // Network error (server down / restart) — don't redirect, just throw
+    throw new Error('网络连接失败，请稍后重试')
+  }
   const json = await res.json()
   if (!json.success) {
-    if (res.status === 401) { localStorage.removeItem('portal_token'); window.location.href = '/portal/login' }
+    if (res.status === 401) {
+      localStorage.removeItem('portal_token')
+      localStorage.removeItem('portal_merchant')
+      throw new AuthError(json.error?.message || '认证已过期')
+    }
     throw new Error(json.error?.message || 'Request failed')
   }
   return json.data
@@ -66,17 +80,19 @@ export const api = {
   // Onboarding
   initiateOnboarding: (body) => fetch(BASE + '/onboarding', { method: 'POST', headers: headers(), body: JSON.stringify(body) }).then(r => r.json()).then(j => { if (!j.success) throw new Error(j.error?.message); return j.data }),
   getOnboardingStatus: () => request('/onboarding'),
+
+  // Channels
+  listChannels: () => request('/channels'),
 }
 
-export function login(token, merchant) {
+export function saveLogin(token, merchant) {
   localStorage.setItem('portal_token', token)
   if (merchant) localStorage.setItem('portal_merchant', JSON.stringify(merchant))
 }
 
-export function logout() {
+export function doLogout() {
   localStorage.removeItem('portal_token')
   localStorage.removeItem('portal_merchant')
-  window.location.href = '/portal/login'
 }
 
 export function isLoggedIn() {

@@ -26,7 +26,8 @@ export default function CountdownTimer({ expiresAt, inline }) {
   return (
     <span style={{
       fontSize: 12,
-      color: expired ? '#d9d9d9' : urgent ? '#fa8c16' : '#999',
+      fontWeight: urgent && !expired ? 600 : 400,
+      color: expired ? '#d0d0d0' : urgent ? '#de481b' : '#6b6b6b',
     }}>
       {expired ? '已过期' : inline ? remaining : `订单有效期: ${remaining}`}
     </span>

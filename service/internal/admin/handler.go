@@ -9,6 +9,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"gorm.io/datatypes"
 	"gorm.io/gorm"
 
 	"github.com/hydra/pay-service/internal/channel"
@@ -225,6 +226,8 @@ func (h *Handler) autoUpdateMerchant(merchantID uuid.UUID, channel, subMerchantI
 		field = "alipay_pid"
 	case model.ChannelWechat:
 		field = "wechat_sub_mchid"
+	case model.ChannelUnionpay:
+		field = "unionpay_sub_mer_id"
 	default:
 		return
 	}
@@ -235,7 +238,12 @@ func (h *Handler) autoUpdateMerchant(merchantID uuid.UUID, channel, subMerchantI
 
 func (h *Handler) ListMerchants(c *gin.Context) {
 	var merchants []model.Merchant
-	h.db.Order("created_at DESC").Find(&merchants)
+	query := h.db.Order("created_at DESC")
+	if q := c.Query("q"); q != "" {
+		like := "%" + q + "%"
+		query = query.Where("name ILIKE ? OR email ILIKE ? OR contact_phone ILIKE ?", like, like, like)
+	}
+	query.Find(&merchants)
 	response.Success(c, merchants)
 }
 
@@ -359,6 +367,9 @@ func (h *Handler) ListOrders(c *gin.Context) {
 	if appID := c.Query("app_id"); appID != "" {
 		query = query.Where("app_id = ?", appID)
 	}
+	if merchantID := c.Query("merchant_id"); merchantID != "" {
+		query = query.Where("app_id IN (SELECT id FROM apps WHERE merchant_id = ?)", merchantID)
+	}
 	if channel := c.Query("channel"); channel != "" {
 		query = query.Where("channel = ?", channel)
 	}
@@ -401,6 +412,9 @@ func (h *Handler) ExportOrders(c *gin.Context) {
 	query := h.db.Model(&model.Payment{})
 	if appID := c.Query("app_id"); appID != "" {
 		query = query.Where("app_id = ?", appID)
+	}
+	if merchantID := c.Query("merchant_id"); merchantID != "" {
+		query = query.Where("app_id IN (SELECT id FROM apps WHERE merchant_id = ?)", merchantID)
 	}
 	if channel := c.Query("channel"); channel != "" {
 		query = query.Where("channel = ?", channel)
@@ -460,6 +474,9 @@ func (h *Handler) GetOrder(c *gin.Context) {
 	var wechatCbs []model.WechatPayCallback
 	h.db.Where("payment_id = ?", id).Order("created_at DESC").Find(&wechatCbs)
 
+	var unionpayCbs []model.UnionpayCallback
+	h.db.Where("payment_id = ?", id).Order("created_at DESC").Find(&unionpayCbs)
+
 	var refunds []model.Refund
 	h.db.Where("payment_id = ?", id).Order("created_at DESC").Find(&refunds)
 
@@ -474,8 +491,9 @@ func (h *Handler) GetOrder(c *gin.Context) {
 		"app_name":        appName,
 		"events":          events,
 		"refunds":          refunds,
-		"alipay_callbacks": alipayCbs,
-		"wechat_callbacks": wechatCbs,
+		"alipay_callbacks":   alipayCbs,
+		"wechat_callbacks":   wechatCbs,
+		"unionpay_callbacks": unionpayCbs,
 	})
 }
 
@@ -548,6 +566,14 @@ func (h *Handler) ChannelConfig(c *gin.Context) {
 			"serial_no":  maskString(os.Getenv("WECHAT_SERIAL_NO"), 4),
 			"key_loaded": os.Getenv("WECHAT_PRIVATE_KEY") != "" || os.Getenv("WECHAT_PRIVATE_KEY_PATH") != "",
 			"notify_url": os.Getenv("WECHAT_NOTIFY_URL"),
+		},
+		"unionpay": gin.H{
+			"app_id":     maskString(os.Getenv("UNIONPAY_APP_ID"), 4),
+			"mch_id":     maskString(os.Getenv("UNIONPAY_MCH_ID"), 4),
+			"key_loaded": os.Getenv("UNIONPAY_PRIVATE_KEY") != "" || os.Getenv("UNIONPAY_PRIVATE_KEY_PATH") != "",
+			"pub_loaded": os.Getenv("UNIONPAY_UNIONPAY_PUBLIC_KEY") != "" || os.Getenv("UNIONPAY_UNIONPAY_PUBLIC_KEY_PATH") != "",
+			"notify_url": os.Getenv("UNIONPAY_NOTIFY_URL"),
+			"return_url": os.Getenv("UNIONPAY_RETURN_URL"),
 		},
 		"global_webhook": os.Getenv("WALL_WEBHOOK_URL"),
 	})
@@ -709,6 +735,36 @@ func (h *Handler) ConnectivityCheck(c *gin.Context) {
 	}
 	results = append(results, r3)
 
+	// UnionPay sandbox
+	start = time.Now()
+	resp4, err4 := http.Get("https://gateway.test.95516.com")
+	lat4 := time.Since(start)
+	r4 := result{Channel: "unionpay", Gateway: "gateway.test.95516.com"}
+	if err4 != nil {
+		r4.Status = "unreachable"
+		r4.Latency = lat4.String()
+	} else {
+		resp4.Body.Close()
+		r4.Status = fmt.Sprintf("HTTP %d", resp4.StatusCode)
+		r4.Latency = lat4.String()
+	}
+	results = append(results, r4)
+
+	// UnionPay production
+	start = time.Now()
+	resp5, err5 := http.Get("https://gateway.95516.com")
+	lat5 := time.Since(start)
+	r5 := result{Channel: "unionpay", Gateway: "gateway.95516.com"}
+	if err5 != nil {
+		r5.Status = "unreachable"
+		r5.Latency = lat5.String()
+	} else {
+		resp5.Body.Close()
+		r5.Status = fmt.Sprintf("HTTP %d", resp5.StatusCode)
+		r5.Latency = lat5.String()
+	}
+	results = append(results, r5)
+
 	response.Success(c, gin.H{"results": results})
 }
 
@@ -859,4 +915,148 @@ func (h *Handler) UpdatePlan(c *gin.Context) {
 	}
 
 	response.Success(c, gin.H{"updated": true})
+}
+
+// ---- Payment Channels ----
+
+func (h *Handler) ListChannels(c *gin.Context) {
+	var pcs []model.PaymentChannel
+	if err := h.db.Order("sort_order ASC").Find(&pcs).Error; err != nil {
+		response.Error(c, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		return
+	}
+	response.Success(c, gin.H{"channels": pcs})
+}
+
+func (h *Handler) UpdateChannel(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, "INVALID_ID", "invalid channel id")
+		return
+	}
+
+	var req struct {
+		Label              *string `json:"label"`
+		SupportsOnboarding *bool   `json:"supports_onboarding"`
+		Enabled            *bool   `json:"enabled"`
+		SortOrder          *int    `json:"sort_order"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, http.StatusBadRequest, "INVALID_BODY", err.Error())
+		return
+	}
+
+	updates := map[string]interface{}{}
+	if req.Label != nil {
+		updates["label"] = *req.Label
+	}
+	if req.SupportsOnboarding != nil {
+		updates["supports_onboarding"] = *req.SupportsOnboarding
+	}
+	if req.Enabled != nil {
+		updates["enabled"] = *req.Enabled
+	}
+	if req.SortOrder != nil {
+		updates["sort_order"] = *req.SortOrder
+	}
+
+	if len(updates) == 0 {
+		response.Error(c, http.StatusBadRequest, "INVALID_BODY", "no fields to update")
+		return
+	}
+
+	if err := h.db.Model(&model.PaymentChannel{}).Where("id = ?", id).Updates(updates).Error; err != nil {
+		response.Error(c, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		return
+	}
+
+	response.Success(c, gin.H{"updated": true})
+}
+
+// ---- Merchant App Channels ----
+
+func (h *Handler) ListMerchantAppChannels(c *gin.Context) {
+	merchantID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, "INVALID_ID", "invalid merchant id")
+		return
+	}
+
+	var channels []model.MerchantAppChannel
+	h.db.Where("merchant_id = ?", merchantID).Order("app_id, sort_order").Find(&channels)
+	response.Success(c, gin.H{"channels": channels})
+}
+
+func (h *Handler) UpdateMerchantAppChannel(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, "INVALID_ID", "invalid channel id")
+		return
+	}
+
+	var req struct {
+		Enabled   *bool           `json:"enabled"`
+		Config    *datatypes.JSON `json:"config"`
+		SortOrder *int            `json:"sort_order"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, http.StatusBadRequest, "INVALID_BODY", err.Error())
+		return
+	}
+
+	updates := map[string]interface{}{}
+	if req.Enabled != nil {
+		updates["enabled"] = *req.Enabled
+	}
+	if req.Config != nil {
+		updates["config"] = *req.Config
+	}
+	if req.SortOrder != nil {
+		updates["sort_order"] = *req.SortOrder
+	}
+
+	if len(updates) == 0 {
+		response.Error(c, http.StatusBadRequest, "INVALID_BODY", "no fields to update")
+		return
+	}
+
+	if err := h.db.Model(&model.MerchantAppChannel{}).Where("id = ?", id).Updates(updates).Error; err != nil {
+		response.Error(c, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		return
+	}
+
+	response.Success(c, gin.H{"updated": true})
+}
+
+func (h *Handler) CreateMerchantAppChannel(c *gin.Context) {
+	var req struct {
+		AppID      uuid.UUID `json:"app_id"`
+		ChannelKey string    `json:"channel_key"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, http.StatusBadRequest, "INVALID_BODY", err.Error())
+		return
+	}
+
+	// Resolve merchant_id from the app
+	var app model.App
+	if err := h.db.Where("id = ?", req.AppID).First(&app).Error; err != nil {
+		response.Error(c, http.StatusNotFound, "APP_NOT_FOUND", "app not found")
+		return
+	}
+
+	ch := model.MerchantAppChannel{
+		AppID:      req.AppID,
+		MerchantID: app.MerchantID,
+		ChannelKey: req.ChannelKey,
+		Enabled:    false,
+		SortOrder:  0,
+	}
+
+	if err := h.db.Where("app_id = ? AND channel_key = ?", req.AppID, req.ChannelKey).FirstOrCreate(&ch).Error; err != nil {
+		response.Error(c, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		return
+	}
+
+	response.Success(c, ch)
 }
