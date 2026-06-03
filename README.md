@@ -83,7 +83,9 @@ npm run dev
 - `GET /v1/payments/{payment_id}`：查询支付状态
 - `POST /v1/payments/{payment_id}/refund`：申请退款
 
-更多 API 细节请参考 `docs/API.md`。
+启动服务后访问 `/swagger/index.html` 查看交互式 API 文档 (Swagger UI)。
+
+更多 API 细节请参考 `service/docs/`。
 
 ## 开发者说明
 

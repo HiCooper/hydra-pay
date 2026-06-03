@@ -72,6 +72,9 @@ func Connect(cfg *config.Config) (*gorm.DB, error) {
 	if err := db.AutoMigrate(&model.MerchantAppChannel{}); err != nil {
 		return nil, err
 	}
+	if err := db.AutoMigrate(&model.AuditLog{}); err != nil {
+		return nil, err
+	}
 
 	sqlDB, err := db.DB()
 	if err != nil {

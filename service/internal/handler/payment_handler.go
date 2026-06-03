@@ -14,9 +14,11 @@ import (
 	"github.com/hydra/pay-service/internal/model"
 	"github.com/hydra/pay-service/internal/repository"
 	"github.com/hydra/pay-service/internal/service"
+	"github.com/hydra/pay-service/pkg/audit"
 	"github.com/hydra/pay-service/pkg/errors"
 	"github.com/hydra/pay-service/pkg/metrics"
 	"github.com/hydra/pay-service/pkg/response"
+	"fmt"
 )
 
 type PaymentHandler struct {
@@ -33,6 +35,16 @@ func NewPaymentHandler(db *gorm.DB, cfg *config.Config) *PaymentHandler {
 }
 
 // CreatePayment handles POST /v1/payments/create
+// @Summary 创建支付
+// @Tags payments
+// @Accept json
+// @Produce json
+// @Param request body object true "创建支付请求" example({"user_id":"u_123","amount":100,"currency":"CNY","channel":"alipay","description":"测试订单"})
+// @Success 200 {object} map[string]interface{}
+// @Failure 400 {object} map[string]interface{}
+// @Failure 401 {object} map[string]interface{}
+// @Header 200 {string} X-API-Key "应用API密钥"
+// @Router /v1/payments/create [post]
 func (h *PaymentHandler) CreatePayment(c *gin.Context) {
 	appID, exists := c.Get(middleware.ContextAppID)
 	if !exists {
@@ -119,6 +131,13 @@ func (h *PaymentHandler) CreatePayment(c *gin.Context) {
 	}
 
 	metrics.PaymentsCreatedTotal.WithLabelValues(result.Payment.Channel, "success").Inc()
+	audit.Log(c.Request.Context(), &audit.Entry{
+		Action:   audit.ActionPaymentCreated,
+		Actor:    fmt.Sprintf("app:%s", appID.(uuid.UUID).String()),
+		Target:   "payment",
+		TargetID: result.Payment.TradeNo,
+		Result:   "success",
+	})
 
 	response.Success(c, gin.H{
 		"payment_id":  result.Payment.ID.String(),
@@ -215,7 +234,17 @@ func (h *PaymentHandler) Callback(c *gin.Context) {
 		response.Success(c, gin.H{"code": "SUCCESS", "message": "ok"})
 	}
 
-	_ = result // result is used for logging within the service
+	if result.Status == "paid" || result.Status == "success" {
+		audit.Log(c.Request.Context(), &audit.Entry{
+			Action: audit.ActionPaymentCompleted, Actor: "channel:" + channelName,
+			Target: "payment", TargetID: result.PaymentID, Result: "success",
+		})
+	} else if result.Status == "failed" || result.Status == "error" {
+		audit.Log(c.Request.Context(), &audit.Entry{
+			Action: audit.ActionPaymentFailed, Actor: "channel:" + channelName,
+			Target: "payment", TargetID: result.PaymentID, Result: "error",
+		})
+	}
 }
 
 // handleServiceError converts service errors to HTTP responses.

@@ -7,10 +7,13 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
+	"fmt"
+
 	"github.com/hydra/pay-service/internal/config"
 	"github.com/hydra/pay-service/internal/middleware"
 	"github.com/hydra/pay-service/internal/repository"
 	"github.com/hydra/pay-service/internal/service"
+	"github.com/hydra/pay-service/pkg/audit"
 	"github.com/hydra/pay-service/pkg/errors"
 	"github.com/hydra/pay-service/pkg/metrics"
 	"github.com/hydra/pay-service/pkg/response"
@@ -79,6 +82,13 @@ func (h *RefundHandler) CreateRefund(c *gin.Context) {
 	}
 
 	metrics.RefundsCreatedTotal.WithLabelValues(result.Refund.Channel, "success").Inc()
+	audit.Log(c.Request.Context(), &audit.Entry{
+		Action:   audit.ActionRefundCreated,
+		Actor:    fmt.Sprintf("app:%s", appID.(uuid.UUID).String()),
+		Target:   "refund",
+		TargetID: result.Refund.TradeNo,
+		Result:   "success",
+	})
 
 	response.Success(c, gin.H{
 		"refund_id":         result.Refund.ID.String(),

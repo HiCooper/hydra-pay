@@ -16,6 +16,7 @@ import (
 	"github.com/hydra/pay-service/internal/model"
 	"github.com/hydra/pay-service/internal/repository"
 	"github.com/hydra/pay-service/internal/service"
+	"github.com/hydra/pay-service/pkg/audit"
 	"github.com/hydra/pay-service/pkg/response"
 )
 
@@ -97,6 +98,10 @@ func (h *Handler) CreateApp(c *gin.Context) {
 		response.Error(c, http.StatusInternalServerError, "DB_ERROR", err.Error())
 		return
 	}
+	audit.Log(c.Request.Context(), &audit.Entry{
+		Action: audit.ActionAppCreated, Actor: "admin",
+		Target: "app", TargetID: app.ID.String(), Result: "success",
+	})
 	response.Success(c, app)
 }
 
@@ -353,6 +358,10 @@ func (h *Handler) UpdateMerchant(c *gin.Context) {
 		response.Error(c, http.StatusInternalServerError, "DB_ERROR", err.Error())
 		return
 	}
+	audit.Log(c.Request.Context(), &audit.Entry{
+		Action: audit.ActionMerchantUpdated, Actor: "admin",
+		Target: "merchant", TargetID: id.String(), Result: "success",
+	})
 	response.Success(c, gin.H{"updated": true})
 }
 
@@ -970,6 +979,10 @@ func (h *Handler) UpdateChannel(c *gin.Context) {
 		return
 	}
 
+	audit.Log(c.Request.Context(), &audit.Entry{
+		Action: audit.ActionChannelUpdated, Actor: "admin",
+		Target: "payment_channel", TargetID: id.String(), Result: "success",
+	})
 	response.Success(c, gin.H{"updated": true})
 }
 

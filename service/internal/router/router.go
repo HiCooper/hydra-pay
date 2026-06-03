@@ -6,6 +6,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	swaggerFiles "github.com/swaggo/files"
+	ginSwagger "github.com/swaggo/gin-swagger"
 	"gorm.io/gorm"
 
 	"github.com/hydra/pay-service/internal/admin"
@@ -29,6 +31,8 @@ func Setup(cfg *config.Config, db *gorm.DB) *gin.Engine {
 	r.Use(middleware.Metrics())
 	r.Use(middleware.StructuredLogger())
 	r.Use(middleware.CORS(cfg.Server.CORSOrigins))
+
+	r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 
 	r.GET("/health", func(c *gin.Context) {
 		healthy := true

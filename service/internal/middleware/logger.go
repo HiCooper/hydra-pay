@@ -42,7 +42,7 @@ func StructuredLogger() gin.HandlerFunc {
 		attrs := []slog.Attr{
 			slog.String("method", c.Request.Method),
 			slog.String("path", path),
-			slog.String("query", c.Request.URL.RawQuery),
+			slog.String("query", logger.MaskQuery(c.Request.URL.RawQuery)),
 			slog.Int("status", status),
 			slog.Int64("latency_ms", latency.Milliseconds()),
 			slog.Int("response_size", c.Writer.Size()),

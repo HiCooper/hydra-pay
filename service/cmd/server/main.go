@@ -1,3 +1,9 @@
+// @title Hydra-Pay API
+// @version 1.0
+// @description 统一支付网关 — 多渠道路由、托管结算、订阅管理。
+// @host localhost:8080
+// @BasePath /
+// @schemes http https
 package main
 
 import (
@@ -21,12 +27,16 @@ import (
 	"github.com/hydra/pay-service/internal/database"
 	"github.com/hydra/pay-service/internal/middleware"
 	"github.com/hydra/pay-service/internal/model"
+	"github.com/hydra/pay-service/internal/repository"
 	"github.com/hydra/pay-service/internal/router"
+	"github.com/hydra/pay-service/internal/service"
+	"github.com/hydra/pay-service/pkg/audit"
 	"github.com/hydra/pay-service/pkg/logger"
 	"github.com/hydra/pay-service/pkg/metrics"
 	"github.com/hydra/pay-service/pkg/telemetry"
-	"github.com/hydra/pay-service/internal/service"
 	"gorm.io/gorm"
+
+	_ "github.com/hydra/pay-service/docs" // swagger docs
 )
 
 var ready atomic.Bool
@@ -48,6 +58,9 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to connect to database: %v", err)
 	}
+
+	audit.Init(repository.NewAuditRepository(db))
+	logger.Info(context.Background(), "audit logging initialized")
 
 	middleware.InitSentinel()
 

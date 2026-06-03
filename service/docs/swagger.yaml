@@ -1,0 +1,48 @@
+basePath: /
+host: localhost:8080
+info:
+  contact: {}
+  description: 统一支付网关 — 多渠道路由、托管结算、订阅管理。
+  title: Hydra-Pay API
+  version: "1.0"
+paths:
+  /v1/payments/create:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: 创建支付请求
+        in: body
+        name: request
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          headers:
+            X-API-Key:
+              description: 应用API密钥
+              type: string
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties: true
+            type: object
+      summary: 创建支付
+      tags:
+      - payments
+schemes:
+- http
+- https
+swagger: "2.0"
