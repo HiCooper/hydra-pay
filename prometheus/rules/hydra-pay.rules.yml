@@ -1,0 +1,110 @@
+groups:
+  - name: hydra-pay
+    interval: 30s
+    rules:
+      # Payment Success Rate Alert
+      - alert: PaymentSuccessRateLow
+        expr: |
+          (rate(payments_created_total{status="success"}[5m])
+          /
+          (rate(payments_created_total{status="success"}[5m]) +
+           rate(payments_created_total{status="failed"}[5m]))) < 0.95
+        for: 5m
+        labels:
+          severity: critical
+          component: payments
+        annotations:
+          summary: "Payment success rate below 95%"
+          description: "Payment success rate is {{ $value | humanizePercentage }}, which is below 95% threshold"
+
+      # Channel API Error Rate Alert
+      - alert: ChannelAPIErrorRate
+        expr: |
+          (rate(channel_api_requests_total{status="error"}[5m])
+          /
+          rate(channel_api_requests_total[5m])) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+          component: channels
+        annotations:
+          summary: "Channel {{ $labels.channel }} error rate exceeds 10%"
+          description: "Error rate for channel {{ $labels.channel }} is {{ $value | humanizePercentage }}"
+
+      # High API Latency Alert
+      - alert: HighAPILatency
+        expr: |
+          histogram_quantile(0.99, http_request_duration_seconds{path!~"/health|/metrics|/readyz"}) > 0.3
+        for: 5m
+        labels:
+          severity: warning
+          component: api
+        annotations:
+          summary: "P99 API latency exceeds 300ms"
+          description: "P99 latency for {{ $labels.path }} is {{ $value }}s"
+
+      # High HTTP Error Rate (5xx)
+      - alert: HighHTTPErrorRate
+        expr: |
+          (rate(http_requests_total{status=~"5.."}[5m])
+          /
+          rate(http_requests_total[5m])) > 0.01
+        for: 5m
+        labels:
+          severity: critical
+          component: api
+        annotations:
+          summary: "HTTP 5xx error rate exceeds 1%"
+          description: "5xx error rate is {{ $value | humanizePercentage }} (threshold: 1%)"
+
+      # Webhook Delivery Failures
+      - alert: HighWebhookFailureRate
+        expr: |
+          (rate(webhook_delivery_total{status="failed"}[5m])
+          /
+          rate(webhook_delivery_total[5m])) > 0.05
+        for: 10m
+        labels:
+          severity: warning
+          component: webhooks
+        annotations:
+          summary: "Webhook delivery failure rate exceeds 5%"
+          description: "Webhook failure rate is {{ $value | humanizePercentage }} for {{ $labels.channel }}"
+
+      # Refund Error Rate
+      - alert: HighRefundErrorRate
+        expr: |
+          (rate(refunds_created_total{status="failed"}[5m])
+          /
+          rate(refunds_created_total[5m])) > 0.05
+        for: 10m
+        labels:
+          severity: warning
+          component: refunds
+        annotations:
+          summary: "Refund failure rate exceeds 5%"
+          description: "Refund failure rate is {{ $value | humanizePercentage }}"
+
+      # Scheduled Task Processing Delay
+      - alert: HighScheduledTaskDelay
+        expr: |
+          rate(scheduled_tasks_processed_total[5m]) < 1
+        for: 15m
+        labels:
+          severity: warning
+          component: scheduler
+        annotations:
+          summary: "Scheduled task processing rate is low"
+          description: "Processing rate is {{ $value }} tasks/sec, expected > 1 task/sec"
+
+      # Service Down
+      - alert: ServiceDown
+        expr: |
+          up{job="hydra-pay-service"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          component: service
+        annotations:
+          summary: "Hydra-Pay service is down"
+          description: "The service at {{ $labels.instance }} is not responding"

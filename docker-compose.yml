@@ -1,0 +1,183 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:16-alpine
+    container_name: hydra-pay-postgres
+    environment:
+      POSTGRES_DB: hydra_pay
+      POSTGRES_USER: hydra
+      POSTGRES_PASSWORD: hydra_secret
+      POSTGRES_INITDB_ARGS: "-c max_connections=200"
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hydra"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - hydra-network
+
+  # Redis Cache & Queue
+  redis:
+    image: redis:7-alpine
+    container_name: hydra-pay-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - hydra-network
+
+  # Backend Pay Service
+  pay-service:
+    build:
+      context: ./service
+      dockerfile: Dockerfile
+    container_name: hydra-pay-service
+    ports:
+      - "8080:8080"
+    environment:
+      PORT: "8080"
+      GIN_MODE: debug
+      DATABASE_URL: "postgres://hydra:hydra_secret@postgres:5432/hydra_pay?sslmode=disable"
+      REDIS_ADDR: "redis:6379"
+      LOG_LEVEL: "debug"
+      LOG_ADD_SOURCE: "true"
+      # Payment channels configuration - use dummy values for local testing
+      ALIPAY_APP_ID: "test_app_id"
+      ALIPAY_PRIVATE_KEY: "test_private_key"
+      ALIPAY_PUBLIC_KEY: "test_public_key"
+      WECHAT_MCH_ID: "test_mch_id"
+      WECHAT_API_V3_KEY: "test_api_v3_key"
+      WECHAT_CERT_PATH: "/app/certs/wechat_cert.pem"
+      WECHAT_KEY_PATH: "/app/certs/wechat_key.pem"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - hydra-network
+    restart: unless-stopped
+
+  # Admin Dashboard Frontend
+  admin:
+    image: node:18-alpine
+    container_name: hydra-pay-admin
+    working_dir: /app
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./admin:/app
+      - /app/node_modules
+    environment:
+      VITE_SERVER_BASE: "http://localhost:8080"
+    command: >
+      sh -c "npm install && npm run dev -- --host"
+    networks:
+      - hydra-network
+    depends_on:
+      - pay-service
+    restart: unless-stopped
+
+  # Pay Frontend (Checkout Page)
+  pay-frontend:
+    image: node:18-alpine
+    container_name: hydra-pay-frontend
+    working_dir: /app
+    ports:
+      - "5174:5174"
+    volumes:
+      - ./pay-frontend:/app
+      - /app/node_modules
+    environment:
+      VITE_SERVER_BASE: "http://localhost:8080"
+    command: >
+      sh -c "npm install && npm run dev -- --host --port 5174"
+    networks:
+      - hydra-network
+    depends_on:
+      - pay-service
+    restart: unless-stopped
+
+  # Portal Frontend
+  portal:
+    image: node:18-alpine
+    container_name: hydra-pay-portal
+    working_dir: /app
+    ports:
+      - "5175:5175"
+    volumes:
+      - ./portal:/app
+      - /app/node_modules
+    environment:
+      VITE_SERVER_BASE: "http://localhost:8080"
+    command: >
+      sh -c "npm install && npm run dev -- --host --port 5175"
+    networks:
+      - hydra-network
+    depends_on:
+      - pay-service
+    restart: unless-stopped
+
+  # Prometheus Metrics
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: hydra-pay-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+    networks:
+      - hydra-network
+    depends_on:
+      - pay-service
+    restart: unless-stopped
+
+  # Grafana Dashboard
+  grafana:
+    image: grafana/grafana:latest
+    container_name: hydra-pay-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: "admin"
+      GF_SECURITY_ADMIN_USER: "admin"
+      GF_INSTALL_PLUGINS: "grafana-piechart-panel"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./prometheus/grafana/provisioning:/etc/grafana/provisioning
+    networks:
+      - hydra-network
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+networks:
+  hydra-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
+  prometheus_data:
+  grafana_data:
