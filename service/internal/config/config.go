@@ -55,7 +55,6 @@ type AlipayConfig struct {
 	IsSandbox           bool
 	PrivateKeyPath      string
 	AlipayPublicKeyPath string
-	OnboardingNotifyURL string
 }
 
 type WechatConfig struct {
@@ -66,7 +65,6 @@ type WechatConfig struct {
 	PrivateKeyPath      string
 	NotifyURL           string
 	IsSandbox           bool
-	OnboardingNotifyURL string
 }
 
 type UnionpayConfig struct {
@@ -80,7 +78,6 @@ type UnionpayConfig struct {
 	NotifyURL           string
 	ReturnURL           string
 	IsSandbox           bool
-	OnboardingNotifyURL string
 }
 
 type EcnyConfig struct {
@@ -132,7 +129,6 @@ func Load() *Config {
 			IsSandbox:           getEnv("ALIPAY_SANDBOX", "false") == "true",
 			PrivateKeyPath:      getEnv("ALIPAY_PRIVATE_KEY_PATH", ""),
 			AlipayPublicKeyPath: getEnv("ALIPAY_ALIPAY_PUBLIC_KEY_PATH", ""),
-			OnboardingNotifyURL: getEnv("ALIPAY_ONBOARDING_NOTIFY_URL", ""),
 		},
 		Wechat: WechatConfig{
 			MchID:               getEnv("WECHAT_MCH_ID", ""),
@@ -142,7 +138,6 @@ func Load() *Config {
 			PrivateKeyPath:      getEnv("WECHAT_PRIVATE_KEY_PATH", ""),
 			NotifyURL:           getEnv("WECHAT_NOTIFY_URL", ""),
 			IsSandbox:           getEnv("WECHAT_SANDBOX", "false") == "true",
-			OnboardingNotifyURL: getEnv("WECHAT_ONBOARDING_NOTIFY_URL", ""),
 		},
 		Unionpay: UnionpayConfig{
 			AppID:                 getEnv("UNIONPAY_APP_ID", ""),
@@ -155,7 +150,6 @@ func Load() *Config {
 			NotifyURL:             getEnv("UNIONPAY_NOTIFY_URL", ""),
 			ReturnURL:             getEnv("UNIONPAY_RETURN_URL", ""),
 			IsSandbox:             getEnv("UNIONPAY_SANDBOX", "false") == "true",
-			OnboardingNotifyURL:   getEnv("UNIONPAY_ONBOARDING_NOTIFY_URL", ""),
 		},
 		Ecny: EcnyConfig{
 			AppID:               getEnv("ECNY_APP_ID", ""),

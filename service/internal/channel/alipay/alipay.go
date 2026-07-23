@@ -92,9 +92,6 @@ func (a *Adapter) createQRCodePayment(ctx context.Context, req *channel.CreatePa
 	if req.NotifyURL != "" {
 		p.NotifyURL = req.NotifyURL
 	}
-	if req.SubMerchantID != "" {
-		p.SellerId = req.SubMerchantID
-	}
 
 	ctx, span := otel.Tracer("hydra-pay").Start(ctx, "alipay.precreate",
 		trace.WithSpanKind(trace.SpanKindClient),
@@ -145,9 +142,6 @@ func (a *Adapter) createAppPayment(ctx context.Context, req *channel.CreatePayme
 	if req.NotifyURL != "" {
 		p.NotifyURL = req.NotifyURL
 	}
-	if req.SubMerchantID != "" {
-		p.SellerId = req.SubMerchantID
-	}
 
 	ctx, span := otel.Tracer("hydra-pay").Start(ctx, "alipay.app_pay",
 		trace.WithSpanKind(trace.SpanKindClient),
@@ -193,9 +187,6 @@ func (a *Adapter) createH5Payment(ctx context.Context, req *channel.CreatePaymen
 	}
 	p.ReturnURL = a.config.ReturnURL
 	p.QuitURL = req.CancelURL
-	if req.SubMerchantID != "" {
-		p.SellerId = req.SubMerchantID
-	}
 
 	ctx, span := otel.Tracer("hydra-pay").Start(ctx, "alipay.wap_pay",
 		trace.WithSpanKind(trace.SpanKindClient),

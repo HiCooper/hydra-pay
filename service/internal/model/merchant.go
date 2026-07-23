@@ -16,12 +16,6 @@ type Merchant struct {
 	ContactPhone string    `gorm:"type:varchar(30)"                                json:"contact_phone"`
 	Status       string    `gorm:"type:varchar(20);default:active"                 json:"status"`
 
-	// Service provider sub-merchant IDs
-	AlipayPID         string `gorm:"type:varchar(64)" json:"alipay_pid"`
-	WechatSubMchid    string `gorm:"type:varchar(32)" json:"wechat_sub_mchid"`
-	WechatSubAppid    string `gorm:"type:varchar(32)" json:"wechat_sub_appid"`
-	UnionpaySubMerID  string `gorm:"type:varchar(64)" json:"unionpay_sub_mer_id"`
-	EcnySubMerID      string `gorm:"type:varchar(64)" json:"ecny_sub_mer_id"`
 
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`

@@ -137,7 +137,6 @@ func (a *Adapter) createNative(ctx context.Context, req *channel.CreatePaymentRe
 		OrderID:  req.PaymentID,
 		TxnAmt:   req.Amount,
 		BackURL:  backURL,
-		SubMerID: req.SubMerchantID,
 	})
 	metrics.ChannelAPIRequestDuration.WithLabelValues("unionpay", "native").Observe(time.Since(start).Seconds())
 	if err != nil {
@@ -177,7 +176,6 @@ func (a *Adapter) createApp(ctx context.Context, req *channel.CreatePaymentReque
 		OrderID:  req.PaymentID,
 		TxnAmt:   req.Amount,
 		BackURL:  backURL,
-		SubMerID: req.SubMerchantID,
 	})
 	metrics.ChannelAPIRequestDuration.WithLabelValues("unionpay", "app").Observe(time.Since(start).Seconds())
 	if err != nil {
@@ -217,7 +215,6 @@ func (a *Adapter) createH5(ctx context.Context, req *channel.CreatePaymentReques
 		TxnAmt:   req.Amount,
 		BackURL:  backURL,
 		FrontURL: a.returnURL,
-		SubMerID: req.SubMerchantID,
 	})
 	metrics.ChannelAPIRequestDuration.WithLabelValues("unionpay", "h5").Observe(time.Since(start).Seconds())
 	if err != nil {
@@ -342,7 +339,6 @@ func (a *Adapter) Refund(ctx context.Context, req *channel.RefundRequest) (*chan
 		OrigQryID: req.ChannelTxID,
 		TxnAmt:    req.RefundAmount,
 		BackURL:   a.notifyURL,
-		SubMerID:  req.SubMerchantID,
 	})
 	metrics.ChannelAPIRequestDuration.WithLabelValues("unionpay", "refund").Observe(time.Since(start).Seconds())
 	if err != nil {

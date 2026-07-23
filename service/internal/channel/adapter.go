@@ -8,19 +8,17 @@ import (
 
 // CreatePaymentRequest is the unified request to create a payment on any channel.
 type CreatePaymentRequest struct {
-	PaymentID      string
-	Amount         int64
-	Currency       string
-	Description    string
-	SuccessURL     string
-	CancelURL      string
-	TradeType       string // "native", "app", "jsapi", "h5", "miniapp"
-	OpenID          string // WeChat JSAPI/miniapp user openid
-	ChannelAppID    string // WeChat direct: merchant appid. Service provider: sp_appid
-	SubMerchantID   string // service provider mode: Alipay sub-merchant PID / WeChat sub_mchid
-	SubChannelAppID string // WeChat service provider: sub-merchant's appid (sub_appid)
-	ClientIP        string // client IP for WeChat JSAPI
-	NotifyURL       string // override the default notify_url (for testing or per-payment callback)
+	PaymentID    string
+	Amount       int64
+	Currency     string
+	Description  string
+	SuccessURL   string
+	CancelURL    string
+	TradeType    string // "native", "app", "jsapi", "h5", "miniapp"
+	OpenID       string // WeChat JSAPI/miniapp user openid
+	ChannelAppID string // merchant appid for the channel
+	ClientIP     string // client IP for WeChat JSAPI
+	NotifyURL    string // override the default notify_url (for testing or per-payment callback)
 }
 
 // CreatePaymentResponse is the unified response from creating a payment.
@@ -55,13 +53,12 @@ type CallbackResult struct {
 
 // RefundRequest is the unified request to create a refund on any channel.
 type RefundRequest struct {
-	TradeNo       string // hydra-pay trade_no
-	ChannelTxID   string // channel transaction ID (for channels that require it)
-	RefundAmount  int64  // refund amount in cents
-	TotalAmount   int64  // original payment amount in cents
-	RefundReason  string
-	OutRequestNo  string // deduplication key
-	SubMerchantID string // service provider mode: sub merchant ID
+	TradeNo      string // hydra-pay trade_no
+	ChannelTxID  string // channel transaction ID (for channels that require it)
+	RefundAmount int64  // refund amount in cents
+	TotalAmount  int64  // original payment amount in cents
+	RefundReason string
+	OutRequestNo string // deduplication key
 }
 
 // RefundResponse is the unified response from creating a refund.
@@ -71,54 +68,6 @@ type RefundResponse struct {
 	RawResponse     map[string]interface{}
 }
 
-// ---- Onboarding types ----
-
-// OnboardingRequest is the unified request to initiate merchant onboarding.
-type OnboardingRequest struct {
-	OutRequestNo string
-	MerchantName string
-	ContactName  string
-	ContactPhone string
-	ContactEmail string
-	NotifyURL    string
-}
-
-// OnboardingResponse is the unified response from initiating onboarding.
-type OnboardingResponse struct {
-	ApplymentID string
-	SignURL     string
-	QRCodeURL   string
-	Status      string
-	RawResponse map[string]interface{}
-}
-
-// OnboardingStatusResponse is returned when querying onboarding status.
-type OnboardingStatusResponse struct {
-	ApplymentID   string
-	Status        string
-	SubMerchantID string
-	SignURL       string
-	QRCodeURL     string
-	RawResponse   map[string]interface{}
-}
-
-// OnboardingCallbackResult is the verified, parsed onboarding callback.
-type OnboardingCallbackResult struct {
-	ApplymentID   string
-	OutRequestNo  string
-	Status        string
-	SubMerchantID string
-	RejectReason  string
-	RawBody       string
-}
-
-// OnboardingProvider is an optional interface for channels that support
-// merchant self-service onboarding (间联商户进件).
-type OnboardingProvider interface {
-	SubmitOnboarding(ctx context.Context, req *OnboardingRequest) (*OnboardingResponse, error)
-	QueryOnboarding(ctx context.Context, applymentID string) (*OnboardingStatusResponse, error)
-	VerifyOnboardingCallback(ctx context.Context, data *CallbackData) (*OnboardingCallbackResult, error)
-}
 
 // Adapter is the interface that every payment channel must implement.
 type Adapter interface {

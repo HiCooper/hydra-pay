@@ -39,8 +39,6 @@ type CreatePaymentParams struct {
 	Description  string                 `json:"description,omitempty"`
 	OpenID         string               `json:"open_id,omitempty"`
 	ChannelAppID   string               `json:"channel_app_id,omitempty"`
-	SubMerchantID  string               `json:"sub_merchant_id,omitempty"`
-	SubChannelAppID string              `json:"sub_channel_app_id,omitempty"`
 	ClientIP       string               `json:"client_ip,omitempty"`
 	NotifyURL      string               `json:"notify_url,omitempty"`
 	Metadata     map[string]interface{} `json:"metadata,omitempty"`

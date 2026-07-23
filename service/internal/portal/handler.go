@@ -8,11 +8,9 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
-	"github.com/hydra/pay-service/internal/channel"
 	"github.com/hydra/pay-service/internal/config"
 	"github.com/hydra/pay-service/internal/model"
 	"github.com/hydra/pay-service/internal/repository"
-	"github.com/hydra/pay-service/internal/service"
 	"github.com/hydra/pay-service/pkg/response"
 )
 
@@ -23,7 +21,6 @@ type Handler struct {
 	eventRepo      *repository.EventRepository
 	sessionRepo    *repository.CheckoutSessionRepository
 	subRepo        *repository.SubscriptionRepository
-	onboardingRepo *repository.OnboardingRepository
 }
 
 func NewHandler(db *gorm.DB, cfg *config.Config) *Handler {
@@ -34,7 +31,6 @@ func NewHandler(db *gorm.DB, cfg *config.Config) *Handler {
 		eventRepo:      repository.NewEventRepository(db),
 		sessionRepo:    repository.NewCheckoutSessionRepository(db),
 		subRepo:        repository.NewSubscriptionRepository(db),
-		onboardingRepo: repository.NewOnboardingRepository(db),
 	}
 }
 
@@ -426,169 +422,7 @@ func (h *Handler) ListSubscriptions(c *gin.Context) {
 	response.Success(c, gin.H{"subscriptions": subs})
 }
 
-// ---- Onboarding ----
-
-func (h *Handler) InitiateOnboarding(c *gin.Context) {
-	merchantID := getMerchantID(c)
-	var req struct {
-		Channel      string `json:"channel"`
-		MerchantName string `json:"merchant_name"`
-		ContactName  string `json:"contact_name"`
-		ContactPhone string `json:"contact_phone"`
-		ContactEmail string `json:"contact_email"`
-	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Error(c, http.StatusBadRequest, "INVALID_BODY", err.Error())
-		return
-	}
-	if req.Channel == "" || req.MerchantName == "" || req.ContactName == "" || req.ContactPhone == "" {
-		response.Error(c, http.StatusBadRequest, "INVALID_BODY", "channel, merchant_name, contact_name, contact_phone are required")
-		return
-	}
-
-	// Validate channel exists and supports onboarding
-	var pc model.PaymentChannel
-	if err := h.db.Where("key = ? AND enabled = true AND supports_onboarding = true", req.Channel).First(&pc).Error; err != nil {
-		response.Error(c, http.StatusBadRequest, "INVALID_CHANNEL", "channel not found or does not support onboarding: "+req.Channel)
-		return
-	}
-
-	// Check no active onboarding already exists for this channel
-	existing, _ := h.onboardingRepo.GetByMerchantID(merchantID)
-	for _, ob := range existing {
-		if ob.Channel == req.Channel && ob.Status != model.OnboardingStatusApproved && ob.Status != model.OnboardingStatusRejected {
-			response.Error(c, http.StatusConflict, "DUPLICATE", "an active onboarding already exists for this channel")
-			return
-		}
-	}
-
-	adapter, err := service.GetAdapter(req.Channel, h.cfg)
-	if err != nil {
-		response.Error(c, http.StatusInternalServerError, "CHANNEL_ERROR", err.Error())
-		return
-	}
-	provider, ok := adapter.(channel.OnboardingProvider)
-	if !ok {
-		response.Error(c, http.StatusBadRequest, "NOT_SUPPORTED", "channel does not support onboarding: "+req.Channel)
-		return
-	}
-
-	outReqNo := "ONB-" + uuid.New().String()[:8]
-	chReq := &channel.OnboardingRequest{
-		OutRequestNo: outReqNo,
-		MerchantName: req.MerchantName,
-		ContactName:  req.ContactName,
-		ContactPhone: req.ContactPhone,
-		ContactEmail: req.ContactEmail,
-		NotifyURL:    h.getOnboardingNotifyURL(req.Channel),
-	}
-
-	ob := &model.MerchantOnboarding{
-		MerchantID:   merchantID,
-		Channel:      req.Channel,
-		OutRequestNo: outReqNo,
-		Status:       model.OnboardingStatusPending,
-	}
-	if err := h.onboardingRepo.Create(ob); err != nil {
-		response.Error(c, http.StatusInternalServerError, "DB_ERROR", err.Error())
-		return
-	}
-
-	chResp, err := provider.SubmitOnboarding(c.Request.Context(), chReq)
-	if err != nil {
-		h.onboardingRepo.MarkRejected(ob.ID, err.Error())
-		response.Error(c, http.StatusBadGateway, "ONBOARDING_FAILED", err.Error())
-		return
-	}
-
-	updates := map[string]interface{}{
-		"status":       model.OnboardingStatusSubmitted,
-		"applyment_id": chResp.ApplymentID,
-		"sign_url":     chResp.SignURL,
-		"qr_code_url":  chResp.QRCodeURL,
-	}
-	h.db.Model(&model.MerchantOnboarding{}).Where("id = ?", ob.ID).Updates(updates)
-
-	ob.Status = model.OnboardingStatusSubmitted
-	ob.ApplymentID = chResp.ApplymentID
-	ob.SignURL = chResp.SignURL
-	ob.QrCodeURL = chResp.QRCodeURL
-
-	response.Success(c, ob)
-}
-
-func (h *Handler) GetOnboardingStatus(c *gin.Context) {
-	merchantID := getMerchantID(c)
-	records, err := h.onboardingRepo.GetByMerchantID(merchantID)
-	if err != nil || len(records) == 0 {
-		response.Success(c, nil)
-		return
-	}
-
-	ob := &records[0]
-	if ob.Status != model.OnboardingStatusApproved && ob.Status != model.OnboardingStatusRejected {
-		adapter, err := service.GetAdapter(ob.Channel, h.cfg)
-		if err == nil {
-			if provider, ok := adapter.(channel.OnboardingProvider); ok {
-				statusResp, err := provider.QueryOnboarding(c.Request.Context(), ob.ApplymentID)
-				if err == nil {
-					h.onboardingRepo.UpdateStatus(ob.ID, statusResp.Status)
-					ob.Status = statusResp.Status
-					if statusResp.SignURL != "" {
-						h.onboardingRepo.UpdateSignURL(ob.ID, statusResp.SignURL, statusResp.QRCodeURL)
-						ob.SignURL = statusResp.SignURL
-						ob.QrCodeURL = statusResp.QRCodeURL
-					}
-					if statusResp.Status == model.OnboardingStatusApproved && statusResp.SubMerchantID != "" {
-						h.onboardingRepo.MarkApproved(ob.ID, statusResp.SubMerchantID)
-						ob.Status = model.OnboardingStatusApproved
-						ob.SubMerchantID = statusResp.SubMerchantID
-						h.autoUpdateMerchant(merchantID, ob.Channel, statusResp.SubMerchantID)
-					}
-				}
-			}
-		}
-	}
-
-	response.Success(c, ob)
-}
-
-func (h *Handler) getOnboardingNotifyURL(channel string) string {
-	switch channel {
-	case model.ChannelAlipay:
-		return h.cfg.Alipay.OnboardingNotifyURL
-	case model.ChannelWechat:
-		return h.cfg.Wechat.OnboardingNotifyURL
-	}
-	return ""
-}
-
-func (h *Handler) autoUpdateMerchant(merchantID uuid.UUID, channel, subMerchantID string) {
-	if subMerchantID == "" {
-		return
-	}
-	var field string
-	switch channel {
-	case model.ChannelAlipay:
-		field = "alipay_pid"
-	case model.ChannelWechat:
-		field = "wechat_sub_mchid"
-	default:
-		return
-	}
-	h.db.Model(&model.Merchant{}).Where("id = ?", merchantID).Update(field, subMerchantID)
-}
-
-	// ---- Channels ----
-
 	func (h *Handler) ListChannels(c *gin.Context) {
-		merchantID := getMerchantID(c)
-		var m model.Merchant
-		if err := h.db.First(&m, "id = ?", merchantID).Error; err != nil {
-			response.Error(c, http.StatusNotFound, "NOT_FOUND", "merchant not found")
-			return
-		}
-
 		type ChannelInfo struct {
 			Key        string `json:"key"`
 			Label      string `json:"label"`
@@ -604,13 +438,13 @@ func (h *Handler) autoUpdateMerchant(merchantID uuid.UUID, channel, subMerchantI
 		configured := func(channel string) bool {
 			switch channel {
 			case model.ChannelAlipay:
-				return m.AlipayPID != ""
+				return h.cfg.Alipay.AppID != "" && h.cfg.Alipay.PrivateKey != ""
 			case model.ChannelWechat:
-				return m.WechatSubMchid != ""
+				return h.cfg.Wechat.MchID != "" && h.cfg.Wechat.APIv3Key != ""
 			case model.ChannelUnionpay:
-				return m.UnionpaySubMerID != ""
+				return h.cfg.Unionpay.AppID != "" && h.cfg.Unionpay.Secret != ""
 			case model.ChannelEcny:
-				return m.EcnySubMerID != ""
+				return h.cfg.Ecny.AppID != "" && h.cfg.Ecny.PrivateKey != ""
 			}
 			return false
 		}

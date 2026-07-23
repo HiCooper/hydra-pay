@@ -64,8 +64,6 @@ func (h *PaymentHandler) CreatePayment(c *gin.Context) {
 		Description  string                 `json:"description"`
 		OpenID         string                 `json:"open_id"`
 		ChannelAppID   string                 `json:"channel_app_id"`
-		SubMerchantID   string                 `json:"sub_merchant_id"`
-		SubChannelAppID string                 `json:"sub_channel_app_id"`
 		ClientIP        string                 `json:"client_ip"`
 		NotifyURL       string                 `json:"notify_url"`
 		Metadata     map[string]interface{} `json:"metadata"`
@@ -83,28 +81,6 @@ func (h *PaymentHandler) CreatePayment(c *gin.Context) {
 		response.Error(c, http.StatusBadRequest, errors.ValidationError, "amount must be positive")
 	}
 
-	// Auto-resolve SubMerchantID from App → Merchant if not provided
-	if req.SubMerchantID == "" && req.Channel != "" {
-		var app model.App
-		if err := h.db.First(&app, "id = ?", appID).Error; err == nil {
-			var merchant model.Merchant
-			if err := h.db.First(&merchant, "id = ?", app.MerchantID).Error; err == nil {
-				switch req.Channel {
-				case model.ChannelAlipay:
-					req.SubMerchantID = merchant.AlipayPID
-				case model.ChannelWechat:
-					req.SubMerchantID = merchant.WechatSubMchid
-				case model.ChannelUnionpay:
-					req.SubMerchantID = merchant.UnionpaySubMerID
-				case model.ChannelEcny:
-					req.SubMerchantID = merchant.EcnySubMerID
-				}
-				if req.SubMerchantID != "" && req.SubChannelAppID == "" {
-					req.SubChannelAppID = merchant.WechatSubAppid
-				}
-			}
-		}
-	}
 
 	result, err := h.paymentService.CreatePayment(c.Request.Context(), &service.CreatePaymentInput{
 		AppID:        appID.(uuid.UUID),
@@ -117,10 +93,6 @@ func (h *PaymentHandler) CreatePayment(c *gin.Context) {
 		Description:  req.Description,
 		SuccessURL:   req.SuccessURL,
 		CancelURL:    req.CancelURL,
-		OpenID:         req.OpenID,
-		ChannelAppID:   req.ChannelAppID,
-		SubMerchantID:  req.SubMerchantID,
-		SubChannelAppID: req.SubChannelAppID,
 		ClientIP:        req.ClientIP,
 		NotifyURL:       req.NotifyURL,
 		Metadata:        req.Metadata,

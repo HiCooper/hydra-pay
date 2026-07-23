@@ -86,13 +86,6 @@ func Setup(cfg *config.Config, db *gorm.DB) *gin.Engine {
 		callbacks.POST("", paymentHandler.Callback)
 	}
 
-	// Onboarding callbacks — public, no auth
-	onboardingCbHandler := handler.NewOnboardingCallbackHandler(db, cfg)
-	onboardingCb := r.Group("/v1/onboarding/callback")
-	{
-		onboardingCb.POST("/:channel", onboardingCbHandler.Callback)
-	}
-
 	// Checkout API — public, no auth (for hosted checkout page)
 	checkoutHandler := handler.NewCheckoutHandler(db, cfg)
 	checkout := r.Group("/api/checkout")
@@ -117,7 +110,6 @@ func Setup(cfg *config.Config, db *gorm.DB) *gin.Engine {
 		admAPI.POST("/merchants", adminHandler.CreateMerchant)
 		admAPI.GET("/merchants/:id", adminHandler.GetMerchant)
 		admAPI.PUT("/merchants/:id", adminHandler.UpdateMerchant)
-		admAPI.GET("/merchants/:id/onboarding", adminHandler.GetOnboardingStatus)
 
 		// Apps
 		admAPI.GET("/apps", adminHandler.ListApps)
@@ -125,7 +117,6 @@ func Setup(cfg *config.Config, db *gorm.DB) *gin.Engine {
 		admAPI.GET("/apps/:id", adminHandler.GetApp)
 		admAPI.PUT("/apps/:id", adminHandler.UpdateApp)
 
-		admAPI.GET("/onboarding", adminHandler.ListOnboardings)
 
 		admAPI.GET("/orders", adminHandler.ListOrders)
 		admAPI.GET("/orders/export", adminHandler.ExportOrders)
@@ -177,8 +168,6 @@ func Setup(cfg *config.Config, db *gorm.DB) *gin.Engine {
 		portalAPI.GET("/apps", portalHandler.ListApps)
 		portalAPI.POST("/apps", portalHandler.CreateApp)
 		portalAPI.GET("/channels", portalHandler.ListChannels)
-		portalAPI.POST("/onboarding", portalHandler.InitiateOnboarding)
-		portalAPI.GET("/onboarding", portalHandler.GetOnboardingStatus)
 	}
 
 	// Developer Portal frontend SPA

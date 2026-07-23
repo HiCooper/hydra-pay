@@ -26,8 +26,6 @@ export interface CreatePaymentParams {
   description?: string;
   open_id?: string;
   channel_app_id?: string;
-  sub_merchant_id?: string;
-  sub_channel_app_id?: string;
   client_ip?: string;
   notify_url?: string;
   metadata?: Record<string, unknown>;

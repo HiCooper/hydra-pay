@@ -12,7 +12,6 @@ import (
 	"gorm.io/datatypes"
 	"gorm.io/gorm"
 
-	"github.com/hydra/pay-service/internal/channel"
 	"github.com/hydra/pay-service/internal/model"
 	"github.com/hydra/pay-service/internal/repository"
 	"github.com/hydra/pay-service/internal/service"
@@ -26,7 +25,6 @@ type Handler struct {
 	eventRepo      *repository.EventRepository
 	payService     *service.PaymentService
 	planRepo       *repository.SubscriptionPlanRepository
-	onboardingRepo *repository.OnboardingRepository
 }
 
 func NewHandler(db *gorm.DB, payService *service.PaymentService) *Handler {
@@ -36,7 +34,6 @@ func NewHandler(db *gorm.DB, payService *service.PaymentService) *Handler {
 		eventRepo:      repository.NewEventRepository(db),
 		payService:     payService,
 		planRepo:       repository.NewSubscriptionPlanRepository(db),
-		onboardingRepo: repository.NewOnboardingRepository(db),
 	}
 }
 
@@ -139,107 +136,6 @@ func (h *Handler) UpdateApp(c *gin.Context) {
 	response.Success(c, app)
 }
 
-// ---- Onboarding (read-only for admin) ----
-
-func (h *Handler) GetOnboardingStatus(c *gin.Context) {
-	merchantID, err := uuid.Parse(c.Param("id"))
-	if err != nil {
-		response.Error(c, http.StatusBadRequest, "INVALID_ID", "invalid merchant id")
-		return
-	}
-
-	records, err := h.onboardingRepo.GetByMerchantID(merchantID)
-	if err != nil || len(records) == 0 {
-		response.Error(c, http.StatusNotFound, "NOT_FOUND", "no onboarding record found")
-		return
-	}
-
-	ob := &records[0]
-
-	// If not terminal, refresh from channel
-	if ob.Status != model.OnboardingStatusApproved && ob.Status != model.OnboardingStatusRejected {
-		adapter, err := service.GetAdapter(ob.Channel, h.payService.GetConfig())
-		if err == nil {
-			if provider, ok := adapter.(channel.OnboardingProvider); ok {
-				statusResp, err := provider.QueryOnboarding(c.Request.Context(), ob.ApplymentID)
-				if err == nil {
-					h.onboardingRepo.UpdateStatus(ob.ID, statusResp.Status)
-					ob.Status = statusResp.Status
-
-					if statusResp.SignURL != "" {
-						h.onboardingRepo.UpdateSignURL(ob.ID, statusResp.SignURL, statusResp.QRCodeURL)
-						ob.SignURL = statusResp.SignURL
-						ob.QrCodeURL = statusResp.QRCodeURL
-					}
-
-					if statusResp.Status == model.OnboardingStatusApproved && statusResp.SubMerchantID != "" {
-						h.onboardingRepo.MarkApproved(ob.ID, statusResp.SubMerchantID)
-						ob.Status = model.OnboardingStatusApproved
-						ob.SubMerchantID = statusResp.SubMerchantID
-						h.autoUpdateMerchant(merchantID, ob.Channel, statusResp.SubMerchantID)
-					}
-				}
-			}
-		}
-	}
-
-	response.Success(c, ob)
-}
-
-func (h *Handler) ListOnboardings(c *gin.Context) {
-	page := 1
-	pageSize := 10
-	if p := c.Query("page"); p != "" {
-		fmt.Sscanf(p, "%d", &page)
-	}
-	if ps := c.Query("page_size"); ps != "" {
-		fmt.Sscanf(ps, "%d", &pageSize)
-	}
-	if page < 1 {
-		page = 1
-	}
-	if pageSize < 1 || pageSize > 100 {
-		pageSize = 10
-	}
-
-	records, total, err := h.onboardingRepo.List(
-		c.Query("merchant_id"),
-		c.Query("channel"),
-		c.Query("status"),
-		page, pageSize,
-	)
-	if err != nil {
-		response.Error(c, http.StatusInternalServerError, "DB_ERROR", err.Error())
-		return
-	}
-
-	response.Success(c, gin.H{
-		"onboardings": records,
-		"total":       total,
-		"page":        page,
-		"page_size":   pageSize,
-	})
-}
-
-func (h *Handler) autoUpdateMerchant(merchantID uuid.UUID, channel, subMerchantID string) {
-	if subMerchantID == "" {
-		return
-	}
-	var field string
-	switch channel {
-	case model.ChannelAlipay:
-		field = "alipay_pid"
-	case model.ChannelWechat:
-		field = "wechat_sub_mchid"
-	case model.ChannelUnionpay:
-		field = "unionpay_sub_mer_id"
-	default:
-		return
-	}
-	h.db.Model(&model.Merchant{}).Where("id = ?", merchantID).Update(field, subMerchantID)
-}
-
-// ---- Merchants ----
 
 func (h *Handler) ListMerchants(c *gin.Context) {
 	var merchants []model.Merchant

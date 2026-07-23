@@ -147,7 +147,6 @@ func (a *Adapter) createNative(ctx context.Context, req *channel.CreatePaymentRe
 		TxnAmt:   req.Amount,
 		BackURL:  backURL,
 		Subject:  req.Description,
-		SubMerID: req.SubMerchantID,
 	})
 	metrics.ChannelAPIRequestDuration.WithLabelValues("ecny", "native").Observe(time.Since(start).Seconds())
 	if err != nil {
@@ -191,7 +190,6 @@ func (a *Adapter) createApp(ctx context.Context, req *channel.CreatePaymentReque
 		TxnAmt:   req.Amount,
 		BackURL:  backURL,
 		Subject:  req.Description,
-		SubMerID: req.SubMerchantID,
 	})
 	metrics.ChannelAPIRequestDuration.WithLabelValues("ecny", "app").Observe(time.Since(start).Seconds())
 	if err != nil {
@@ -318,7 +316,6 @@ func (a *Adapter) Refund(ctx context.Context, req *channel.RefundRequest) (*chan
 		RefundAmount: req.RefundAmount,
 		RefundReason: req.RefundReason,
 		BackURL:      a.notifyURL,
-		SubMerID:     req.SubMerchantID,
 	})
 	metrics.ChannelAPIRequestDuration.WithLabelValues("ecny", "refund").Observe(time.Since(start).Seconds())
 	if err != nil {

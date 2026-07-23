@@ -60,9 +60,6 @@ func Connect(cfg *config.Config) (*gorm.DB, error) {
 	if err := db.AutoMigrate(&model.Subscription{}); err != nil {
 		return nil, err
 	}
-	if err := db.AutoMigrate(&model.MerchantOnboarding{}); err != nil {
-		return nil, err
-	}
 	if err := db.AutoMigrate(&model.Merchant{}); err != nil {
 		return nil, err
 	}
@@ -103,8 +100,8 @@ func Connect(cfg *config.Config) (*gorm.DB, error) {
 
 func seedPaymentChannels(db *gorm.DB) {
 	channels := []model.PaymentChannel{
-		{Key: "alipay", Code: "00", Label: "支付宝", SupportsOnboarding: true, SortOrder: 1, Enabled: true},
-		{Key: "wechat", Code: "01", Label: "微信支付", SupportsOnboarding: true, SortOrder: 2, Enabled: true},
+		{Key: "alipay", Code: "00", Label: "支付宝", SupportsOnboarding: false, SortOrder: 1, Enabled: true},
+		{Key: "wechat", Code: "01", Label: "微信支付", SupportsOnboarding: false, SortOrder: 2, Enabled: true},
 		{Key: "unionpay", Code: "03", Label: "云闪付", SupportsOnboarding: false, SortOrder: 3, Enabled: true},
 		{Key: "ecny", Code: "04", Label: "数字人民币", SupportsOnboarding: false, SortOrder: 4, Enabled: true},
 	}

@@ -76,13 +76,11 @@ type CreatePaymentInput struct {
 	Description  string
 	SuccessURL   string
 	CancelURL    string
-	OpenID         string
-	ChannelAppID   string
-	SubMerchantID   string
-	SubChannelAppID string
-	ClientIP        string
-	NotifyURL       string
-	Metadata       map[string]interface{}
+	OpenID       string
+	ChannelAppID string
+	ClientIP     string
+	NotifyURL    string
+	Metadata     map[string]interface{}
 }
 
 type CreatePaymentResult struct {
@@ -296,8 +294,6 @@ func (s *PaymentService) ActivateChannel(ctx context.Context, payment *model.Pay
 		TradeType:      input.TradeType,
 		OpenID:         input.OpenID,
 		ChannelAppID:   input.ChannelAppID,
-		SubMerchantID:  input.SubMerchantID,
-		SubChannelAppID: input.SubChannelAppID,
 		ClientIP:        input.ClientIP,
 		NotifyURL:       input.NotifyURL,
 	})
